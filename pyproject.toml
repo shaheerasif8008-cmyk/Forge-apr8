@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forge"
+version = "0.2.0"
+description = "Forge — AI Employee Manufacturing System"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # API / server
+    "fastapi>=0.115,<0.136",
+    "uvicorn[standard]>=0.35,<0.36",
+    "python-multipart>=0.0.20,<0.1",
+    "itsdangerous>=2.2,<3",
+    "jinja2>=3.1,<4",
+
+    # Validation / settings
+    "pydantic>=2.11,<3",
+    "pydantic-settings>=2.11,<3",
+
+    # HTTP
+    "httpx>=0.28,<0.29",
+
+    # Auth
+    "pyjwt>=2.12,<3",
+
+    # Agent / LLM
+    "langgraph>=1.1,<2",
+    "instructor>=1.14,<2",
+    "litellm>=1.82,<2",
+
+    # Database
+    "sqlalchemy>=2.0,<3",
+    "alembic>=1.18,<2",
+    "asyncpg>=0.30,<1",
+    "aiosqlite>=0.21,<1",
+    "pgvector>=0.4,<1",
+
+    # Cache / queue
+    "redis>=6,<7",
+    "celery>=5.4,<6",
+
+    # Logging
+    "structlog>=25,<26",
+]
+
+[project.optional-dependencies]
+platform = [
+    "composio-core>=0.7.21,<0.8",
+    "guardrails-ai>=0.9.2,<1",
+    "infisical-python>=2.3,<3",
+    "unstructured>=0.17,<0.18",
+    "tavily-python>=0.5,<0.6",
+]
+observability = [
+    "langfuse>=3.14,<4",
+]
+evals = [
+    "deepeval>=3.9,<4",
+]
+dev = [
+    "pytest>=8.4,<9",
+    "pytest-asyncio>=1.2,<2",
+    "ruff>=0.13,<0.14",
+    "mypy>=1.18,<2",
+    "httpx>=0.28,<0.29",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["factory*", "component_library*", "employee_runtime*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_configs = true

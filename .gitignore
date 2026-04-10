@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+*.secret
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Docker
+*.log
+
+# Node (portal)
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Electron build output
+portal/employee_app/dist-electron/
+portal/employee_app/release/

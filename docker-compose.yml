@@ -1,0 +1,107 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: forge
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: forge
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge -d forge"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  factory:
+    build:
+      context: .
+      target: factory
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+asyncpg://forge:forge@postgres:5432/forge
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: forge-packages
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      HUMAN_REVIEW_REQUIRED: "true"
+      MAX_GENERATION_ITERATIONS: "5"
+      EVALUATOR_TIMEOUT_SECONDS: "600"
+      AUTO_INIT_DB: "true"
+      FACTORY_JWT_SECRET: ${FACTORY_JWT_SECRET:-forge-factory-dev-secret}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+        "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  pipeline-worker:
+    build:
+      context: .
+      target: factory
+    command: ["celery", "-A", "factory.workers.celery_app", "worker",
+              "--loglevel=info", "-Q", "pipeline,monitor"]
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+asyncpg://forge:forge@postgres:5432/forge
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: forge-packages
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      FACTORY_JWT_SECRET: ${FACTORY_JWT_SECRET:-forge-factory-dev-secret}
+    depends_on:
+      factory:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  minio_data:

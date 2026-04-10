@@ -1,0 +1,20 @@
+services:
+  employee:
+    build: .
+    environment:
+      EMPLOYEE_ID: "${EMPLOYEE_ID}"
+      DATABASE_URL: "${DATABASE_URL}"
+      REDIS_URL: "${REDIS_URL}"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: employee
+      POSTGRES_USER: employee
+      POSTGRES_PASSWORD: "${DB_PASSWORD}"
+  redis:
+    image: redis:7-alpine

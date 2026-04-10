@@ -1,0 +1,24 @@
+"""knowledge_base data source component."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from component_library.interfaces import BaseComponent, ComponentHealth
+from component_library.registry import register
+
+
+@register("knowledge_base")
+class UknowledgeUbase(BaseComponent):
+    component_id = "knowledge_base"
+    version = "1.0.0"
+    category = "data"
+
+    async def initialize(self, config: dict[str, Any]) -> None:
+        pass
+
+    async def health_check(self) -> ComponentHealth:
+        return ComponentHealth(healthy=True)
+
+    def get_test_suite(self) -> list[str]:
+        return ["tests/components/data/test_knowledge_base.py"]

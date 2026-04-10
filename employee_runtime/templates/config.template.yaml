@@ -1,0 +1,10 @@
+employee_id: "${EMPLOYEE_ID}"
+name: "${EMPLOYEE_NAME}"
+org_id: "${ORG_ID}"
+deployment_format: "${DEPLOYMENT_FORMAT}"
+supervisor_email: "${SUPERVISOR_EMAIL}"
+allowed_tools: ${ALLOWED_TOOLS}
+autonomy_profile:
+  auto_approve_threshold: ${AUTO_APPROVE_THRESHOLD}
+  escalate_threshold: ${ESCALATE_THRESHOLD}
+  block_threshold: ${BLOCK_THRESHOLD}
