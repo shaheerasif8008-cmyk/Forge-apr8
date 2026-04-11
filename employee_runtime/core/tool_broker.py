@@ -10,12 +10,11 @@ Every tool invocation MUST go through this broker. It:
 
 from __future__ import annotations
 
-import time
-import asyncio
 import structlog
 from pydantic import BaseModel, Field
 from uuid import UUID, uuid4
 from datetime import datetime
+from typing import Any, Awaitable, Callable
 
 logger = structlog.get_logger(__name__)
 
@@ -40,9 +39,17 @@ class ToolResult(BaseModel):
 class ToolBroker:
     """Permission-enforcing, audit-logging gateway for external tool calls."""
 
-    def __init__(self, employee_id: str, allowed_tools: list[str]) -> None:
+    def __init__(
+        self,
+        employee_id: str,
+        allowed_tools: list[str],
+        tools: dict[str, Any] | None = None,
+        audit_logger: Callable[..., Awaitable[Any]] | None = None,
+    ) -> None:
         self._employee_id = employee_id
         self._allowed_tools = set(allowed_tools)
+        self._tools = tools or {}
+        self._audit_logger = audit_logger
 
     async def execute(self, tool_id: str, action: str, **params: object) -> ToolResult:
         """Execute a tool action through the broker.
@@ -71,7 +78,19 @@ class ToolBroker:
         )
         logger.info("tool_broker_call", tool_id=tool_id, action=action, call_id=str(call.id))
 
-        # TODO: resolve credentials from vault, route to adapter
-        result = ToolResult(call_id=call.id, success=True, data={})
+        tool = self._tools.get(tool_id)
+        if tool is None:
+            raise ValueError(f"Tool '{tool_id}' is not registered with the broker.")
+
+        if self._audit_logger is not None:
+            await self._audit_logger(
+                employee_id=self._employee_id,
+                org_id=str(params.get("org_id", "")),
+                event_type="tool_invoked",
+                details={"tool_id": tool_id, "action": action, "parameters": dict(params)},
+            )
+
+        data = await tool.invoke(action, dict(params))
+        result = ToolResult(call_id=call.id, success=True, data=data)
         logger.info("tool_broker_result", success=result.success, call_id=str(call.id))
         return result

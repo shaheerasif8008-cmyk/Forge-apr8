@@ -2,19 +2,30 @@
 
 from __future__ import annotations
 
-from typing import Any
-from pydantic import BaseModel, Field
+from typing import TypedDict
 
 
-class EmployeeState(BaseModel):
-    """State passed between nodes in the employee workflow graph."""
-
-    task_id: str = ""
-    input: str = ""
-    context: dict[str, Any] = Field(default_factory=dict)
-    outputs: list[dict[str, Any]] = Field(default_factory=list)
-    errors: list[str] = Field(default_factory=list)
-    confidence: float = 1.0
-    requires_human_approval: bool = False
-    escalation_reason: str = ""
-    metadata: dict[str, Any] = Field(default_factory=dict)
+class EmployeeState(TypedDict, total=False):
+    task_id: str
+    employee_id: str
+    org_id: str
+    conversation_id: str
+    raw_input: str
+    input_type: str
+    input_metadata: dict
+    sanitization_result: dict
+    extracted_data: dict
+    analysis: dict
+    confidence_report: dict
+    verification_result: dict
+    qualification_decision: str
+    qualification_reasoning: str
+    brief: dict
+    delivery_method: str
+    delivery_status: str
+    errors: list
+    audit_event_ids: list
+    requires_human_approval: bool
+    escalation_reason: str
+    started_at: str
+    completed_at: str

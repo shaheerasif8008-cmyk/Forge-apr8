@@ -9,8 +9,11 @@ from factory.models.orm import (
     BuildRow,
     ClientOrgRow,
     ClientRow,
+    ConversationRow,
     DeploymentRow,
     EmployeeRequirementsRow,
+    MessageRow,
+    OperationalMemoryRow,
 )
 
 
@@ -23,6 +26,9 @@ def test_all_tables_registered_in_metadata() -> None:
         "blueprints",
         "builds",
         "deployments",
+        "operational_memories",
+        "conversations",
+        "messages",
         "audit_events",
     }
     assert expected == table_names
@@ -74,7 +80,23 @@ def test_deployment_has_unique_build_id() -> None:
 def test_audit_event_has_hash_chain_column() -> None:
     cols = {c.name for c in AuditEventRow.__table__.columns}
     assert "hash_chain" in cols
+    assert "employee_id" in cols
+    assert "event_type" in cols
+    assert "details" in cols
+    assert "prev_hash" in cols
+    assert "hash" in cols
     assert "occurred_at" in cols
+
+
+def test_runtime_tables_have_expected_columns() -> None:
+    operational_cols = {c.name for c in OperationalMemoryRow.__table__.columns}
+    assert {"org_id", "employee_id", "key", "value", "category"} <= operational_cols
+
+    conversation_cols = {c.name for c in ConversationRow.__table__.columns}
+    assert {"org_id", "employee_id", "created_at", "updated_at"} <= conversation_cols
+
+    message_cols = {c.name for c in MessageRow.__table__.columns}
+    assert {"conversation_id", "role", "content", "message_type", "metadata"} <= message_cols
 
 
 def test_audit_event_compute_hash_deterministic() -> None:

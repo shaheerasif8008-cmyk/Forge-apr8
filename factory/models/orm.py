@@ -7,7 +7,10 @@ Table mapping:
   blueprints           ← EmployeeBlueprint
   builds               ← Build
   deployments          ← Deployment
-  audit_events         ← append-only factory audit trail (hash-chained)
+  operational_memories ← employee runtime preference/fact store
+  conversations        ← employee runtime conversation roots
+  messages             ← employee runtime messages and approval records
+  audit_events         ← append-only factory/runtime audit trail (hash-chained)
 
 JSONB columns are used for any field that maps to a list[...] or dict[...] in
 the Pydantic layer so we avoid row-per-item join tables at this stage.
@@ -321,6 +324,115 @@ class DeploymentRow(Base):
     )
 
 
+# ── operational_memories ─────────────────────────────────────────────────────
+
+
+class OperationalMemoryRow(Base):
+    """Persistent runtime facts and employee settings scoped by org + employee."""
+
+    __tablename__ = "operational_memories"
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    org_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("client_orgs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    employee_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    key: Mapped[str] = mapped_column(String(255), nullable=False)
+    value: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    category: Mapped[str] = mapped_column(String(100), nullable=False, default="general")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=_utcnow,
+    )
+
+    __table_args__ = (
+        Index("idx_opmem_lookup", "org_id", "employee_id", "key"),
+        Index("idx_opmem_category", "org_id", "employee_id", "category"),
+        Index("ix_operational_memories_org_id", "org_id"),
+        Index(
+            "uq_operational_memories_scope",
+            "org_id",
+            "employee_id",
+            "key",
+            unique=True,
+        ),
+    )
+
+
+# ── conversations ────────────────────────────────────────────────────────────
+
+
+class ConversationRow(Base):
+    """Conversation root for a deployed employee."""
+
+    __tablename__ = "conversations"
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    org_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("client_orgs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    employee_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=_utcnow,
+    )
+
+    messages: Mapped[list["MessageRow"]] = relationship(
+        "MessageRow", back_populates="conversation", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (Index("ix_conversations_org_employee", "org_id", "employee_id"),)
+
+
+# ── messages ─────────────────────────────────────────────────────────────────
+
+
+class MessageRow(Base):
+    """Conversation message, including approval and status messages."""
+
+    __tablename__ = "messages"
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    conversation_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    message_type: Mapped[str] = mapped_column(String(50), nullable=False, default="text")
+    metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    conversation: Mapped[ConversationRow] = relationship(
+        "ConversationRow", back_populates="messages"
+    )
+
+    __table_args__ = (Index("idx_messages_conv", "conversation_id", "created_at"),)
+
+
 # ── audit_events ──────────────────────────────────────────────────────────────
 
 
@@ -352,12 +464,18 @@ class AuditEventRow(Base):
     actor: Mapped[str] = mapped_column(
         String(100), nullable=False, default="factory"
     )
+    employee_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # action performed
     action: Mapped[str] = mapped_column(String(100), nullable=False)
+    event_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # arbitrary structured payload
     detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    prev_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     # hash chain — sha256(prev_hash + this event payload)
     hash_chain: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    trace_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # timestamp is server-side and not overridable by application code
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -367,6 +485,8 @@ class AuditEventRow(Base):
         Index("ix_audit_events_org_id", "org_id"),
         Index("ix_audit_events_entity", "entity_type", "entity_id"),
         Index("ix_audit_events_occurred_at", "occurred_at"),
+        Index("ix_audit_events_employee_id", "employee_id"),
+        Index("ix_audit_events_event_type", "event_type"),
     )
 
     @staticmethod

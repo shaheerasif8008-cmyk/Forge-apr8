@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 
 from factory.api import api_router
 from factory.config import get_settings
-from factory.database import close_engine, init_engine
+from factory.database import close_engine, init_db_schema, init_engine
 
 logger = structlog.get_logger(__name__)
 
@@ -26,6 +26,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ),
     )
     init_engine()
+    if settings.auto_init_db:
+        await init_db_schema()
     logger.info("forge_factory_startup", environment=settings.environment)
     yield
     await close_engine()

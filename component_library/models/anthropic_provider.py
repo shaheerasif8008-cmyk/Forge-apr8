@@ -12,6 +12,7 @@ Supports two call modes:
 from __future__ import annotations
 
 import time
+from collections.abc import AsyncGenerator
 from typing import Any, TypeVar
 
 import instructor
@@ -94,11 +95,13 @@ class AnthropicProvider(BaseComponent):
 
     async def complete(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, str]] | str,
+        user_message: str | None = None,
         *,
         max_tokens: int | None = None,
         temperature: float | None = None,
         system: str | None = None,
+        system_prompt: str | None = None,
     ) -> str:
         """Free-form text completion.
 
@@ -114,7 +117,7 @@ class AnthropicProvider(BaseComponent):
         Raises:
             RuntimeError: On non-retryable API errors.
         """
-        full_messages = self._build_messages(messages, system)
+        full_messages = self._coerce_messages(messages, user_message, system_prompt or system)
         extra = self._call_kwargs(max_tokens, temperature)
 
         response, latency_ms = await self._call_with_retry(
@@ -134,11 +137,13 @@ class AnthropicProvider(BaseComponent):
     async def structure(
         self,
         response_model: type[T],
-        messages: list[dict[str, str]],
+        messages: list[dict[str, str]] | str,
+        user_message: str | None = None,
         *,
         max_tokens: int | None = None,
         temperature: float | None = None,
         system: str | None = None,
+        system_prompt: str | None = None,
         max_retries: int = 3,
     ) -> T:
         """Structured output via Instructor — returns a validated Pydantic model.
@@ -162,7 +167,7 @@ class AnthropicProvider(BaseComponent):
         if self._instructor_client is None:
             raise RuntimeError("AnthropicProvider not initialised — call initialize() first.")
 
-        full_messages = self._build_messages(messages, system)
+        full_messages = self._coerce_messages(messages, user_message, system_prompt or system)
         extra = self._call_kwargs(max_tokens, temperature)
 
         t0 = time.monotonic()
@@ -177,7 +182,60 @@ class AnthropicProvider(BaseComponent):
         self._log_call(mode="structure", latency_ms=latency_ms, response_model=response_model.__name__)
         return result
 
+    async def complete_structured(
+        self,
+        system_prompt: str,
+        user_message: str,
+        output_model: type[T],
+        **kwargs: Any,
+    ) -> T:
+        """Phase-1 structured completion interface."""
+        return await self.structure(
+            output_model,
+            user_message,
+            system_prompt=system_prompt,
+            **kwargs,
+        )
+
+    async def stream(
+        self,
+        messages: list[dict[str, str]] | str,
+        user_message: str | None = None,
+        *,
+        system: str | None = None,
+        system_prompt: str | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """Yield a best-effort token stream.
+
+        litellm's streaming objects vary by provider; for Phase 1, when no true stream
+        object is available we degrade to whitespace-delimited chunks from complete().
+        """
+        response = await self.complete(
+            messages,
+            user_message,
+            system=system,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        for token in response.split():
+            yield f"{token} "
+
     # ── Internals ──────────────────────────────────────────────────────────────
+
+    def _coerce_messages(
+        self,
+        messages: list[dict[str, str]] | str,
+        user_message: str | None,
+        system: str | None,
+    ) -> list[dict[str, str]]:
+        if isinstance(messages, str):
+            message_list = [{"role": "user", "content": user_message or messages}]
+        else:
+            message_list = messages
+        return self._build_messages(message_list, system)
 
     def _build_messages(
         self,

@@ -22,6 +22,7 @@ The router records every call to a RouteRecord for observability.
 from __future__ import annotations
 
 import time
+from collections.abc import AsyncGenerator
 from enum import Enum
 from typing import Any, TypeVar
 
@@ -43,11 +44,14 @@ litellm.suppress_debug_info = True
 class TaskType(str, Enum):
     """Task types that influence model selection."""
 
+    PRIMARY = "primary"
+    FALLBACK = "fallback"
     REASONING = "reasoning"    # deep multi-step reasoning → o4-mini class
     SAFETY = "safety"          # fast guardrail checks → haiku class
     CREATIVE = "creative"      # drafting, ideation → sonnet at temp 0.5
     STRUCTURED = "structured"  # Instructor extraction → sonnet at temp 0.0
     FAST = "fast"              # latency-critical → haiku class
+    EMBEDDING = "embedding"
     DEFAULT = "default"        # primary with fallback
 
 
@@ -60,6 +64,7 @@ class RouteRecord(BaseModel):
     latency_ms: int
     input_tokens: int = 0
     output_tokens: int = 0
+    estimated_cost: float = 0.0
     mode: str = "complete"  # complete | structure
 
 
@@ -95,6 +100,7 @@ class LitellmRouter(BaseComponent):
     _reasoning: str = ""
     _safety: str = ""
     _fast: str = ""
+    _embedding: str = ""
     _max_tokens: int = 2048
     _timeout: int = 60
     _route_overrides: dict[str, str] = {}
@@ -115,6 +121,7 @@ class LitellmRouter(BaseComponent):
         self._reasoning = config.get("reasoning_model", self._primary)
         self._safety = config.get("safety_model", self._primary)
         self._fast = config.get("fast_model", self._primary)
+        self._embedding = config.get("embedding_model", self._primary)
         self._max_tokens = int(config.get("max_tokens", self._max_tokens))
         self._timeout = int(config.get("timeout", self._timeout))
         self._route_overrides = config.get("route_overrides", {})
@@ -147,12 +154,14 @@ class LitellmRouter(BaseComponent):
 
     async def complete(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, str]] | str,
+        user_message: str | None = None,
         *,
         task_type: TaskType = TaskType.DEFAULT,
         max_tokens: int | None = None,
         temperature: float | None = None,
         system: str | None = None,
+        system_prompt: str | None = None,
     ) -> str:
         """Free-form text completion routed by task type.
 
@@ -167,7 +176,7 @@ class LitellmRouter(BaseComponent):
             Assistant text response.
         """
         model, temp = self._resolve(task_type, temperature)
-        full_messages = self._build_messages(messages, system)
+        full_messages = self._coerce_messages(messages, user_message, system_prompt or system)
         kwargs = self._base_kwargs(model, max_tokens, temp)
 
         response, latency_ms, fallback_used = await self._call_with_fallback(
@@ -192,12 +201,14 @@ class LitellmRouter(BaseComponent):
     async def structure(
         self,
         response_model: type[T],
-        messages: list[dict[str, str]],
+        messages: list[dict[str, str]] | str,
+        user_message: str | None = None,
         *,
         task_type: TaskType = TaskType.STRUCTURED,
         max_tokens: int | None = None,
         temperature: float | None = None,
         system: str | None = None,
+        system_prompt: str | None = None,
         max_retries: int = 3,
     ) -> T:
         """Structured Pydantic output via Instructor, routed by task type.
@@ -221,7 +232,7 @@ class LitellmRouter(BaseComponent):
             raise RuntimeError("LitellmRouter not initialised — call initialize() first.")
 
         model, temp = self._resolve(task_type, temperature)
-        full_messages = self._build_messages(messages, system)
+        full_messages = self._coerce_messages(messages, user_message, system_prompt or system)
         kwargs = self._base_kwargs(model, max_tokens, temp)
 
         t0 = time.monotonic()
@@ -245,6 +256,47 @@ class LitellmRouter(BaseComponent):
             mode="structure",
         )
         return result
+
+    async def complete_structured(
+        self,
+        task_type: TaskType,
+        system_prompt: str,
+        user_message: str,
+        output_model: type[T],
+        **kwargs: Any,
+    ) -> T:
+        """Phase-1 structured completion interface."""
+        return await self.structure(
+            output_model,
+            user_message,
+            task_type=task_type,
+            system_prompt=system_prompt,
+            **kwargs,
+        )
+
+    async def stream(
+        self,
+        messages: list[dict[str, str]] | str,
+        user_message: str | None = None,
+        *,
+        task_type: TaskType = TaskType.DEFAULT,
+        system: str | None = None,
+        system_prompt: str | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """Yield a best-effort stream for frontend token updates."""
+        response = await self.complete(
+            messages,
+            user_message,
+            task_type=task_type,
+            system=system,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        for token in response.split():
+            yield f"{token} "
 
     @property
     def call_history(self) -> list[RouteRecord]:
@@ -270,12 +322,18 @@ class LitellmRouter(BaseComponent):
         # Runtime override takes precedence
         if task_type.value in self._route_overrides:
             model = self._route_overrides[task_type.value]
+        elif task_type in {TaskType.PRIMARY, TaskType.DEFAULT, TaskType.STRUCTURED, TaskType.CREATIVE}:
+            model = self._primary
+        elif task_type == TaskType.FALLBACK:
+            model = self._fallback or self._primary
         elif task_type == TaskType.REASONING:
             model = self._reasoning or self._primary
         elif task_type == TaskType.SAFETY:
             model = self._safety or self._primary
         elif task_type == TaskType.FAST:
             model = self._fast or self._primary
+        elif task_type == TaskType.EMBEDDING:
+            model = self._embedding or self._primary
         else:
             model = self._primary
 
@@ -299,6 +357,18 @@ class LitellmRouter(BaseComponent):
         if system:
             return [{"role": "system", "content": system}, *messages]
         return messages
+
+    def _coerce_messages(
+        self,
+        messages: list[dict[str, str]] | str,
+        user_message: str | None,
+        system: str | None,
+    ) -> list[dict[str, str]]:
+        if isinstance(messages, str):
+            message_list = [{"role": "user", "content": user_message or messages}]
+        else:
+            message_list = messages
+        return self._build_messages(message_list, system)
 
     def _base_kwargs(
         self,
@@ -379,6 +449,7 @@ class LitellmRouter(BaseComponent):
             latency_ms=latency_ms,
             input_tokens=in_tok,
             output_tokens=out_tok,
+            estimated_cost=self._estimate_cost(in_tok, out_tok),
             mode=mode,
         )
         self._call_history.append(record)
@@ -390,4 +461,8 @@ class LitellmRouter(BaseComponent):
             latency_ms=latency_ms,
             in_tokens=in_tok,
             out_tokens=out_tok,
+            estimated_cost=record.estimated_cost,
         )
+
+    def _estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
+        return round((input_tokens * 0.000003) + (output_tokens * 0.000015), 6)
