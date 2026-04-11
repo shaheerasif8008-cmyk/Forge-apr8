@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from factory.models.blueprint import CustomCodeSpec, SelectedComponent
 from factory.models.requirements import EmployeeRequirements
+from factory.pipeline.architect.component_selector import TOOL_MAP
 
 
 async def identify_gaps(
@@ -24,7 +25,14 @@ async def identify_gaps(
 
     for tool in requirements.required_tools:
         normalized = tool.lower().replace(" ", "_")
-        if normalized not in covered_tools:
+        matched_component = None
+        for keyword, component_id in TOOL_MAP.items():
+            if keyword in tool.lower():
+                matched_component = component_id
+                break
+        if matched_component is not None and matched_component in covered_tools:
+            continue
+        if matched_component is None or matched_component not in covered_tools:
             gaps.append(CustomCodeSpec(
                 name=f"custom_{normalized}_tool",
                 description=f"Custom tool integration for: {tool}",

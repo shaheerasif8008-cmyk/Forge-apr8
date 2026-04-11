@@ -1,50 +1,67 @@
-"""Test runner: orchestrates all evaluator test suites."""
+"""Test runner: orchestrates evaluator test suites against a packaged employee."""
 
 from __future__ import annotations
 
 import structlog
 
 from factory.models.build import Build, BuildLog, BuildStatus
+from factory.pipeline.evaluator.behavioral_tests import run_behavioral_tests
+from factory.pipeline.evaluator.container_runner import find_free_port, start_container, stop_container, wait_for_health
+from factory.pipeline.evaluator.functional_tests import run_functional_tests
+from factory.pipeline.evaluator.security_tests import run_security_tests
 
 logger = structlog.get_logger(__name__)
 
-TEST_SUITES = [
-    "functional_tests",
-    "security_tests",
-    "behavioral_tests",
-    "hallucination_tests",
-    "compliance_tests",
-]
-
 
 async def evaluate(build: Build) -> Build:
-    """Run all test suites against the packaged employee.
-
-    Args:
-        build: Build with packaged artifacts.
-
-    Returns:
-        Build with test_report populated and status set to PASSED or FAILED.
-    """
+    """Run evaluator suites against the packaged employee container."""
     build.status = BuildStatus.EVALUATING
-    logger.info("evaluator_start", build_id=str(build.id))
+    image_tag = str(build.metadata.get("image_tag", ""))
+    if not image_tag:
+        build.status = BuildStatus.FAILED
+        build.logs.append(
+            BuildLog(stage="evaluator", level="error", message="Missing image tag for evaluation")
+        )
+        return build
 
-    results: dict[str, object] = {}
-    passed = True
+    port = find_free_port()
+    container_id = ""
+    base_url = f"http://127.0.0.1:{port}"
 
-    for suite in TEST_SUITES:
-        # TODO: run actual test suite; currently stubs all as passed
-        suite_result = {"status": "passed", "tests": 0, "failures": 0}
-        results[suite] = suite_result
-        build.logs.append(BuildLog(
-            stage="evaluator",
-            message=f"Suite {suite}: {suite_result['status']}",
-            detail=suite_result,
-        ))
-        if suite_result["status"] != "passed":
-            passed = False
+    logger.info("evaluator_start", build_id=str(build.id), image_tag=image_tag, port=port)
+    try:
+        container_id = await start_container(image_tag, port)
+        build.metadata["evaluator_container_id"] = container_id
+        build.metadata["evaluator_port"] = port
 
-    build.test_report = {"suites": results, "overall": "passed" if passed else "failed"}
-    build.status = BuildStatus.PASSED if passed else BuildStatus.FAILED
-    logger.info("evaluator_complete", overall=build.test_report["overall"])
-    return build
+        healthy = await wait_for_health(f"{base_url}/health", timeout=60)
+        if not healthy:
+            build.status = BuildStatus.FAILED
+            build.logs.append(
+                BuildLog(stage="evaluator", level="error", message="Employee failed health check")
+            )
+            return build
+
+        suites = {
+            "functional": await run_functional_tests(base_url),
+            "security": await run_security_tests(base_url),
+            "behavioral": await run_behavioral_tests(base_url),
+        }
+        for suite_name, result in suites.items():
+            build.logs.append(
+                BuildLog(
+                    stage="evaluator",
+                    message=f"Suite {suite_name}: {'passed' if result['passed'] else 'failed'}",
+                    detail=result,
+                )
+            )
+        passed = all(result["passed"] for result in suites.values())
+        build.test_report = {"suites": suites, "overall": "passed" if passed else "failed"}
+        build.status = BuildStatus.PASSED if passed else BuildStatus.FAILED
+        logger.info("evaluator_complete", build_id=str(build.id), overall=build.test_report["overall"])
+        return build
+    finally:
+        if container_id:
+            await stop_container(container_id)
+            build.metadata.pop("evaluator_container_id", None)
+            build.metadata.pop("evaluator_port", None)

@@ -240,10 +240,15 @@ class BuildRow(Base):
     id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), primary_key=True, default=uuid4
     )
-    blueprint_id: Mapped[UUID] = mapped_column(
+    requirements_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("employee_requirements.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    blueprint_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("blueprints.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
     )
     org_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), nullable=False
@@ -254,6 +259,7 @@ class BuildRow(Base):
     logs: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     artifacts: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     test_report: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -270,6 +276,7 @@ class BuildRow(Base):
 
     __table_args__ = (
         Index("ix_builds_org_id", "org_id"),
+        Index("ix_builds_requirements_id", "requirements_id"),
         Index("ix_builds_blueprint_id", "blueprint_id"),
         Index("ix_builds_status", "status"),
     )

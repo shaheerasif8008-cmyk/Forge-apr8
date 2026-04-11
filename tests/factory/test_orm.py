@@ -63,7 +63,7 @@ def test_blueprint_jsonb_columns() -> None:
 
 def test_build_jsonb_columns() -> None:
     cols = {c.name: c for c in BuildRow.__table__.columns}
-    for col_name in ("logs", "artifacts", "test_report"):
+    for col_name in ("logs", "artifacts", "test_report", "metadata"):
         assert col_name in cols
 
 

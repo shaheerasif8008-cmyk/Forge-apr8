@@ -7,6 +7,7 @@ from datetime import datetime
 import structlog
 
 from factory.models.deployment import Deployment, DeploymentStatus
+from factory.pipeline.evaluator.container_runner import wait_for_health
 
 logger = structlog.get_logger(__name__)
 
@@ -22,8 +23,12 @@ async def activate(deployment: Deployment) -> Deployment:
     """
     deployment.status = DeploymentStatus.ACTIVATING
     logger.info("activator_start", deployment_id=str(deployment.id))
-    # TODO: start container, health-check, set access_url
-    deployment.access_url = f"https://employee-{deployment.id}.forge.app"
+    healthy = await wait_for_health(f"{deployment.access_url}/health", timeout=60)
+    if not healthy:
+        deployment.status = DeploymentStatus.DEGRADED
+        logger.warning("activator_unhealthy", deployment_id=str(deployment.id))
+        return deployment
+
     deployment.status = DeploymentStatus.ACTIVE
     deployment.activated_at = datetime.utcnow()
     logger.info("activator_complete", access_url=deployment.access_url)

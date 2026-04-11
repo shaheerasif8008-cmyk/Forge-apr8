@@ -1,4 +1,4 @@
-"""Integration test for the full factory pipeline (no Docker required)."""
+"""Higher-level pipeline flow test with stage monkeypatching."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from factory.workers.pipeline_worker import start_pipeline
 
 
 @pytest.mark.anyio
-async def test_pipeline_completes(sample_requirements, sample_blueprint, monkeypatch) -> None:
+async def test_full_pipeline_deploys_on_success(sample_requirements, sample_blueprint, monkeypatch) -> None:
     @asynccontextmanager
     async def fake_session_factory():
         class FakeSession:
@@ -37,13 +37,13 @@ async def test_pipeline_completes(sample_requirements, sample_blueprint, monkeyp
         return sample_blueprint
 
     async def fake_assemble(blueprint, requirements, build):
-        return build
+        return build.model_copy(update={"metadata": {"build_dir": "/tmp/demo"}})
 
     async def fake_generate(blueprint, build, iteration=1):
         return build
 
     async def fake_package(build):
-        return build.model_copy(update={"metadata": {"image_tag": "forge:test"}})
+        return build.model_copy(update={"metadata": {"image_tag": "forge:test", **build.metadata}})
 
     async def fake_evaluate(build):
         return build.model_copy(update={"status": BuildStatus.PASSED})
@@ -52,7 +52,7 @@ async def test_pipeline_completes(sample_requirements, sample_blueprint, monkeyp
         return build
 
     async def fake_provision(deployment, build):
-        return deployment.model_copy(update={"access_url": "http://127.0.0.1:9001"})
+        return deployment.model_copy(update={"access_url": "http://127.0.0.1:8123"})
 
     async def fake_activate(deployment):
         return deployment.model_copy(update={"status": DeploymentStatus.ACTIVE})
@@ -71,9 +71,6 @@ async def test_pipeline_completes(sample_requirements, sample_blueprint, monkeyp
     monkeypatch.setattr("factory.pipeline.deployer.provisioner.provision", fake_provision)
     monkeypatch.setattr("factory.pipeline.deployer.activator.activate", fake_activate)
 
-    build = Build(
-        requirements_id=sample_requirements.id,
-        org_id=sample_requirements.org_id,
-    )
+    build = Build(requirements_id=sample_requirements.id, org_id=sample_requirements.org_id)
     result = await start_pipeline(sample_requirements, build)
     assert result.status == BuildStatus.DEPLOYED
