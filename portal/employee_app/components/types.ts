@@ -36,6 +36,15 @@ export type EmployeeMeta = {
   deployment_format: string;
 };
 
+export type MemorySnapshot = Record<string, { key: string; value: Record<string, unknown> }[]>;
+
+export type UpdateStatus = {
+  security?: Record<string, unknown>;
+  learning?: Record<string, unknown>;
+  modules?: Record<string, unknown>;
+  policies?: Record<string, unknown>;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";

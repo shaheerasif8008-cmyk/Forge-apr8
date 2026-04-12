@@ -33,6 +33,27 @@ class CommunicationManager(WorkCapability):
 
     def compose(self, plan: ExecutiveAssistantPlan) -> ExecutiveAssistantResult:
         actions = plan.requested_actions or ["Acknowledge request", "Prepare next step summary"]
+        if plan.is_novel_situation:
+            drafted_response = (
+                "I haven't handled this exact situation before. "
+                "Here are three approaches: "
+                + "; ".join(
+                    f"[{option['key']}] {option['label']}: {option['description']}"
+                    for option in plan.novel_options
+                )
+                + f" Recommended: {plan.recommended_option}."
+                + f" - {self._signature}"
+            )
+            return ExecutiveAssistantResult(
+                title="Guidance Needed",
+                summary=plan.guidance_request or plan.summary,
+                drafted_response=drafted_response,
+                action_items=["Review options", "Choose an approach", "Confirm any constraints"],
+                confidence_score=0.46,
+                novel_options=plan.novel_options,
+                recommended_option=plan.recommended_option,
+                needs_guidance=True,
+            )
         drafted_response = (
             f"I've reviewed the request. {plan.summary} "
             f"My next steps are: {', '.join(actions[:3])}. "
@@ -45,4 +66,7 @@ class CommunicationManager(WorkCapability):
             drafted_response=drafted_response,
             action_items=actions[:5],
             confidence_score=0.82 if not plan.requires_approval else 0.68,
+            novel_options=plan.novel_options,
+            recommended_option=plan.recommended_option,
+            needs_guidance=False,
         )

@@ -24,6 +24,8 @@ class EmployeeState(TypedDict, total=False):
     result_card: dict
     response_summary: str
     workflow_output: dict
+    novel_options: list
+    correction_record: dict
     delivery_method: str
     delivery_status: str
     errors: list

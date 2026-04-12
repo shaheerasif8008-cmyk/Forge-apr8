@@ -114,6 +114,11 @@ class ExecutiveAssistantPlan(BaseModel):
     deadlines: list[str] = Field(default_factory=list)
     requires_approval: bool = False
     rationale: str = ""
+    is_novel_situation: bool = False
+    novel_options: list[dict[str, str]] = Field(default_factory=list)
+    recommended_option: str = ""
+    guidance_request: str = ""
+    novel_trigger: str = ""
 
 
 class ExecutiveAssistantResult(BaseModel):
@@ -124,3 +129,6 @@ class ExecutiveAssistantResult(BaseModel):
     schedule_updates: list[str] = Field(default_factory=list)
     crm_updates: list[str] = Field(default_factory=list)
     confidence_score: float = 0.0
+    novel_options: list[dict[str, str]] = Field(default_factory=list)
+    recommended_option: str = ""
+    needs_guidance: bool = False

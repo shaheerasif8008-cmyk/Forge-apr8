@@ -6,7 +6,7 @@ import { ChatInput } from "@/components/ChatInput";
 import { MessageBubble } from "@/components/MessageBubble";
 import { SidebarPanels } from "@/components/SidebarPanels";
 import { StreamingIndicator } from "@/components/StreamingIndicator";
-import type { Approval, ChatMessage, EmployeeMeta } from "@/components/types";
+import type { Approval, ChatMessage, EmployeeMeta, MemorySnapshot, UpdateStatus } from "@/components/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_EMPLOYEE_API_URL ?? "http://localhost:8001";
 const WS_BASE = (process.env.NEXT_PUBLIC_EMPLOYEE_WS_URL ?? "ws://localhost:8001").replace(/\/$/, "");
@@ -17,22 +17,28 @@ export default function HomePage() {
   const [activity, setActivity] = useState<Record<string, unknown>[]>([]);
   const [settings, setSettings] = useState<Record<string, unknown>>({});
   const [metrics, setMetrics] = useState<Record<string, unknown>>({});
+  const [memory, setMemory] = useState<MemorySnapshot>({});
+  const [updates, setUpdates] = useState<UpdateStatus>({});
   const [streaming, setStreaming] = useState(false);
   const [meta, setMeta] = useState<EmployeeMeta | null>(null);
 
   const conversationId = "default";
 
   async function loadSidebar() {
-    const [approvalRes, activityRes, settingsRes, metricsRes] = await Promise.all([
+    const [approvalRes, activityRes, settingsRes, metricsRes, memoryRes, updatesRes] = await Promise.all([
       fetch(`${API_BASE}/api/v1/approvals`),
       fetch(`${API_BASE}/api/v1/activity`),
       fetch(`${API_BASE}/api/v1/settings`),
       fetch(`${API_BASE}/api/v1/metrics`),
+      fetch(`${API_BASE}/api/v1/memory`),
+      fetch(`${API_BASE}/api/v1/updates`),
     ]);
     setApprovals(await approvalRes.json());
     setActivity(await activityRes.json());
     setSettings(await settingsRes.json());
     setMetrics(await metricsRes.json());
+    setMemory(await memoryRes.json());
+    setUpdates(await updatesRes.json());
   }
 
   useEffect(() => {
@@ -158,6 +164,8 @@ export default function HomePage() {
             activity={activity}
             settings={settings}
             metrics={metrics}
+            memory={memory}
+            updates={updates}
           />
         </aside>
       </div>

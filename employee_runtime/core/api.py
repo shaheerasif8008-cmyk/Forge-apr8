@@ -32,6 +32,8 @@ import component_library.work.workflow_executor  # noqa: F401
 from component_library.component_factory import create_components
 from employee_runtime.core.engine import EmployeeEngine
 from employee_runtime.core.tool_broker import ToolBroker
+from employee_runtime.modules.behavior_manager import BehaviorManager
+from employee_runtime.modules.pulse_engine import DailyLoopRequest, PulseEngine
 
 
 class TaskRequest(BaseModel):
@@ -56,6 +58,30 @@ class SettingsPayload(BaseModel):
     values: dict[str, Any]
 
 
+class DirectCommandPayload(BaseModel):
+    command: str
+
+
+class PortalQuietHoursPayload(BaseModel):
+    description: str = "No non-urgent messages after quiet hours."
+    after_hour: int = 17
+    suppress_non_urgent: bool = True
+    channels: list[str] = Field(default_factory=lambda: ["email", "messaging"])
+
+
+class AdaptivePatternPayload(BaseModel):
+    description: str
+    after_hour: int = 17
+    suppress_non_urgent: bool = True
+    channels: list[str] = Field(default_factory=lambda: ["email", "messaging"])
+    observed_for: str = ""
+
+
+class CorrectionPayload(BaseModel):
+    message: str
+    corrected_output: str = ""
+
+
 class EmployeeRuntimeService:
     def __init__(self, employee_id: str, config: dict[str, Any]) -> None:
         self.employee_id = employee_id
@@ -63,6 +89,8 @@ class EmployeeRuntimeService:
         self.components: dict[str, Any] = {}
         self.engine: EmployeeEngine | None = None
         self.tool_broker: ToolBroker | None = None
+        self.pulse_engine: PulseEngine | None = None
+        self.behavior_manager: BehaviorManager | None = None
         self.tasks: dict[str, dict[str, Any]] = {}
         self.conversations: dict[str, dict[str, Any]] = {}
         self.messages: dict[str, list[dict[str, Any]]] = {}
@@ -91,6 +119,24 @@ class EmployeeRuntimeService:
             self.config["workflow"],
             self.components,
             {"employee_id": self.employee_id, "org_id": self.config["org_id"]},
+        )
+        self.behavior_manager = BehaviorManager(
+            operational_memory=self.components["operational_memory"],
+            audit_logger=self.components.get("audit_system", None).log_event if self.components.get("audit_system") else None,
+            employee_id=self.employee_id,
+            org_id=str(self.config["org_id"]),
+            timezone=str(self.config.get("timezone", "America/New_York")),
+        )
+        self.pulse_engine = PulseEngine(
+            employee_id=self.employee_id,
+            workflow=self.config["workflow"],
+            engine=self.engine,
+            tool_broker=self.tool_broker,
+            components=self.components,
+            config=self.config,
+            add_message=self.add_message,
+            metrics_provider=self.metrics,
+            behavior_manager=self.behavior_manager,
         )
 
     def _component_config(self) -> dict[str, dict[str, Any]]:
@@ -246,6 +292,134 @@ class EmployeeRuntimeService:
         task = await self.task_status(task_id)
         return self._result_card(task)
 
+    async def record_correction(self, task_id: str, payload: CorrectionPayload) -> dict[str, Any]:
+        if task_id not in self.tasks:
+            raise KeyError(task_id)
+
+        task = self.tasks[task_id]
+        correction_key = _normalize_correction_key(payload.message)
+        prior = await self.components["operational_memory"].list_by_category("mistake_correction")
+        repeat_count = 1 + sum(
+            1
+            for record in prior
+            if isinstance(record.get("value"), dict) and record["value"].get("correction_key") == correction_key
+        )
+        escalated_to_forge = repeat_count >= 2
+        acknowledgement = "You're right. I misread that. Correcting now."
+        if payload.corrected_output:
+            acknowledgement = f"{acknowledgement} Updated direction: {payload.corrected_output}"
+
+        correction = {
+            "task_id": task_id,
+            "correction_key": correction_key,
+            "message": payload.message,
+            "corrected_output": payload.corrected_output,
+            "acknowledgement": acknowledgement,
+            "repeat_count": repeat_count,
+            "escalated_to_forge": escalated_to_forge,
+            "recorded_at": datetime.now(UTC).isoformat(),
+        }
+        await self.components["operational_memory"].store(
+            f"correction:{task_id}:{repeat_count}",
+            correction,
+            "mistake_correction",
+        )
+        await self.components["operational_memory"].store(
+            f"learning:{correction_key}",
+            {
+                "source": "local_correction",
+                "last_feedback": payload.message,
+                "corrected_output": payload.corrected_output,
+                "repeat_count": repeat_count,
+            },
+            "local_learning",
+        )
+        if escalated_to_forge:
+            await self.components["operational_memory"].store(
+                f"forge_escalation:{correction_key}",
+                {
+                    "task_id": task_id,
+                    "reason": "repeated_correction_pattern",
+                    "repeat_count": repeat_count,
+                    "latest_feedback": payload.message,
+                },
+                "forge_escalation",
+            )
+
+        task["correction_record"] = correction
+        if payload.corrected_output:
+            task["response_summary"] = payload.corrected_output
+            if isinstance(task.get("result_card"), dict):
+                task["result_card"]["executive_summary"] = payload.corrected_output
+        conversation_id = str(task.get("conversation_id", ""))
+        if conversation_id:
+            await self.add_message(
+                conversation_id,
+                "assistant",
+                acknowledgement,
+                "status_update",
+                {"task_id": task_id, "correction": True, "escalated_to_forge": escalated_to_forge},
+            )
+        if "audit_system" in self.components:
+            await self.components["audit_system"].log_event(
+                employee_id=self.employee_id,
+                org_id=str(self.config["org_id"]),
+                event_type="mistake_corrected",
+                details=correction,
+            )
+        return correction
+
+    async def list_corrections(self) -> list[dict[str, Any]]:
+        records = await self.components["operational_memory"].list_by_category("mistake_correction")
+        return [
+            record["value"]
+            for record in records
+            if isinstance(record.get("value"), dict)
+        ]
+
+    async def memory_snapshot(self) -> dict[str, Any]:
+        categories = (
+            "general",
+            "daily_loop",
+            "behavior_rule",
+            "local_learning",
+            "mistake_correction",
+            "forge_escalation",
+            "preference",
+        )
+        snapshot: dict[str, list[dict[str, Any]]] = {}
+        for category in categories:
+            items = await self.components["operational_memory"].list_by_category(category)
+            snapshot[category] = [
+                {
+                    "key": item.get("key", ""),
+                    "value": item.get("value", {}),
+                }
+                for item in items[:10]
+            ]
+        return snapshot
+
+    async def updates_status(self) -> dict[str, Any]:
+        learning_enabled = True
+        settings = await self.get_settings()
+        if "learning_enabled" in settings:
+            learning_enabled = bool(settings["learning_enabled"])
+        behavior_rules = await self.list_behavior_rules()
+        corrections = await self.list_corrections()
+        return {
+            "security": {"status": "supported", "mode": "factory-managed"},
+            "learning": {
+                "enabled": learning_enabled,
+                "local_corrections": len(corrections),
+            },
+            "modules": {
+                "installed_components": [component["id"] for component in self.config["components"]],
+            },
+            "policies": {
+                "active_behavior_rules": len(behavior_rules),
+            },
+        }
+
     async def list_approvals(self) -> list[dict[str, Any]]:
         return [approval for approval in self.approvals.values() if approval["metadata"].get("status") == "pending"]
 
@@ -275,7 +449,71 @@ class EmployeeRuntimeService:
     async def put_settings(self, values: dict[str, Any]) -> dict[str, Any]:
         for key, value in values.items():
             await self.components["operational_memory"].store(f"pref:{key}", {"value": value}, "preference")
+            if key == "quiet_hours" and self.behavior_manager is not None:
+                quiet_hour = _parse_quiet_hours(value)
+                if quiet_hour is not None:
+                    await self.behavior_manager.set_portal_quiet_hours(
+                        rule_id="portal-quiet-hours",
+                        description=f"Portal quiet-hours preference from settings: {value}",
+                        after_hour=quiet_hour,
+                        suppress_non_urgent=True,
+                        channels=["email", "messaging"],
+                        metadata={"source": "settings", "value": value},
+                    )
         return await self.get_settings()
+
+    async def list_behavior_rules(self) -> list[dict[str, Any]]:
+        if self.behavior_manager is None:
+            return []
+        rules = await self.behavior_manager.list_rules()
+        return [rule.model_dump(mode="json") for rule in rules]
+
+    async def add_direct_command(self, command: str) -> dict[str, Any]:
+        if self.behavior_manager is None:
+            raise RuntimeError("Behavior manager is not initialized.")
+        rule = await self.behavior_manager.add_direct_command(command)
+        return rule.model_dump(mode="json")
+
+    async def add_portal_rule(self, payload: PortalQuietHoursPayload) -> dict[str, Any]:
+        if self.behavior_manager is None:
+            raise RuntimeError("Behavior manager is not initialized.")
+        rule = await self.behavior_manager.set_portal_quiet_hours(
+            rule_id="portal-quiet-hours",
+            description=payload.description,
+            after_hour=payload.after_hour,
+            suppress_non_urgent=payload.suppress_non_urgent,
+            channels=payload.channels,
+        )
+        return rule.model_dump(mode="json")
+
+    async def add_adaptive_pattern(self, payload: AdaptivePatternPayload) -> dict[str, Any]:
+        if self.behavior_manager is None:
+            raise RuntimeError("Behavior manager is not initialized.")
+        rule = await self.behavior_manager.add_adaptive_pattern(
+            description=payload.description,
+            after_hour=payload.after_hour,
+            suppress_non_urgent=payload.suppress_non_urgent,
+            channels=payload.channels,
+            metadata={"observed_for": payload.observed_for},
+        )
+        return rule.model_dump(mode="json")
+
+    async def resolve_behavior(
+        self,
+        *,
+        urgency: str = "normal",
+        channel: str = "email",
+        current_time: str = "",
+    ) -> dict[str, Any]:
+        if self.behavior_manager is None:
+            raise RuntimeError("Behavior manager is not initialized.")
+        resolved_time = datetime.fromisoformat(current_time) if current_time else None
+        resolution = await self.behavior_manager.resolve_quiet_hours(
+            urgency=urgency,
+            channel=channel,
+            current_time=resolved_time,
+        )
+        return resolution.model_dump(mode="json")
 
     async def activity(self) -> list[dict[str, Any]]:
         if "audit_system" not in self.components:
@@ -284,7 +522,13 @@ class EmployeeRuntimeService:
 
     async def metrics(self) -> dict[str, Any]:
         activity = await self.activity()
-        completed = [event for event in activity if event["event_type"] == "task_completed"]
+        completed = [
+            event
+            for event in activity
+            if event["event_type"] == "task_completed"
+            and isinstance(event.get("details"), dict)
+            and event["details"].get("node") == "log_completion"
+        ]
         outputs = [event for event in activity if event["event_type"] == "output_produced"]
         approvals = [event for event in activity if event["event_type"] == "approval_decided"]
         confidence_values = [
@@ -331,6 +575,30 @@ class EmployeeRuntimeService:
             )
         return message
 
+    async def run_daily_loop(self, request: DailyLoopRequest) -> dict[str, Any]:
+        if self.pulse_engine is None:
+            raise RuntimeError("Pulse engine is not initialized.")
+        conv_id = await self.ensure_conversation(request.conversation_id)
+        report = await self.pulse_engine.run_daily_loop(
+            DailyLoopRequest(
+                conversation_id=conv_id,
+                max_items=request.max_items,
+            )
+        )
+        return report.model_dump(mode="json")
+
+    async def latest_daily_loop_report(self) -> dict[str, Any] | None:
+        operational_memory = self.components.get("operational_memory")
+        if operational_memory is None:
+            return None
+        record = await operational_memory.retrieve("daily_loop:latest")
+        if record is None:
+            return None
+        value = record.get("value", {})
+        if not isinstance(value, dict):
+            return None
+        return value
+
 
 def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) -> FastAPI:
     service = EmployeeRuntimeService(employee_id, config or {})
@@ -345,6 +613,7 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
         yield
 
     app = FastAPI(title=f"Employee API — {employee_id}", version="1.0.0", lifespan=lifespan)
+    app.state.runtime_service = service
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -394,6 +663,29 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="task_not_found") from exc
 
+    @app.post("/api/v1/tasks/{task_id}/corrections")
+    async def correct_task(task_id: str, payload: CorrectionPayload) -> dict[str, Any]:
+        await ensure_ready()
+        try:
+            return await service.record_correction(task_id, payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="task_not_found") from exc
+
+    @app.get("/api/v1/corrections")
+    async def get_corrections() -> list[dict[str, Any]]:
+        await ensure_ready()
+        return await service.list_corrections()
+
+    @app.get("/api/v1/memory")
+    async def get_memory() -> dict[str, Any]:
+        await ensure_ready()
+        return await service.memory_snapshot()
+
+    @app.get("/api/v1/updates")
+    async def get_updates() -> dict[str, Any]:
+        await ensure_ready()
+        return await service.updates_status()
+
     @app.get("/api/v1/activity")
     async def get_activity() -> list[dict[str, Any]]:
         await ensure_ready()
@@ -422,10 +714,52 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
         await ensure_ready()
         return await service.put_settings(payload.values)
 
+    @app.get("/api/v1/behavior/rules")
+    async def get_behavior_rules() -> list[dict[str, Any]]:
+        await ensure_ready()
+        return await service.list_behavior_rules()
+
+    @app.post("/api/v1/behavior/direct-commands")
+    async def add_direct_command(payload: DirectCommandPayload) -> dict[str, Any]:
+        await ensure_ready()
+        return await service.add_direct_command(payload.command)
+
+    @app.post("/api/v1/behavior/portal-rules")
+    async def add_portal_rule(payload: PortalQuietHoursPayload) -> dict[str, Any]:
+        await ensure_ready()
+        return await service.add_portal_rule(payload)
+
+    @app.post("/api/v1/behavior/adaptive-patterns")
+    async def add_adaptive_pattern(payload: AdaptivePatternPayload) -> dict[str, Any]:
+        await ensure_ready()
+        return await service.add_adaptive_pattern(payload)
+
+    @app.get("/api/v1/behavior/resolution")
+    async def get_behavior_resolution(
+        urgency: str = "normal",
+        channel: str = "email",
+        current_time: str = "",
+    ) -> dict[str, Any]:
+        await ensure_ready()
+        return await service.resolve_behavior(urgency=urgency, channel=channel, current_time=current_time)
+
     @app.get("/api/v1/metrics")
     async def get_metrics() -> dict[str, Any]:
         await ensure_ready()
         return await service.metrics()
+
+    @app.post("/api/v1/autonomy/daily-loop")
+    async def run_daily_loop(request: DailyLoopRequest) -> dict[str, Any]:
+        await ensure_ready()
+        return await service.run_daily_loop(request)
+
+    @app.get("/api/v1/autonomy/daily-loop/latest")
+    async def get_latest_daily_loop() -> dict[str, Any]:
+        await ensure_ready()
+        report = await service.latest_daily_loop_report()
+        if report is None:
+            raise HTTPException(status_code=404, detail="daily_loop_not_found")
+        return report
 
     @app.websocket("/api/v1/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
@@ -501,6 +835,32 @@ def _normalize_runtime_config(employee_id: str, config: dict[str, Any]) -> dict[
     }
 
     org_map = raw_manifest.get("org_map") or config.get("people", [])
+    normalized_people: list[dict[str, str]] = []
+    for person in org_map:
+        if not isinstance(person, dict):
+            continue
+        normalized_people.append(
+            {
+                "name": str(person.get("name", "")),
+                "role": str(person.get("role", "Colleague")),
+                "email": str(
+                    person.get("email")
+                    or person.get("contact")
+                    or person.get("value")
+                    or config.get("supervisor_email", "supervisor@example.com")
+                ),
+                "communication_preference": str(
+                    person.get("communication_preference")
+                    or person.get("communication_channel")
+                    or "email"
+                ),
+                "relationship": str(
+                    person.get("relationship")
+                    or person.get("relationship_type")
+                    or "colleague"
+                ),
+            }
+        )
     return {
         "employee_id": str(raw_manifest.get("employee_id", employee_id)),
         "org_id": str(raw_manifest.get("org_id", config.get("org_id", "demo-org"))),
@@ -511,8 +871,8 @@ def _normalize_runtime_config(employee_id: str, config: dict[str, Any]) -> dict[
         "tool_permissions": tool_permissions,
         "identity_layers": identity_layers,
         "ui": raw_manifest.get("ui", {"app_badge": "Hosted web", "capabilities": capabilities}),
-        "org_map": org_map,
-        "escalation_chain": config.get("escalation_chain", [contact.get("name", "") for contact in org_map[:1]]),
+        "org_map": normalized_people,
+        "escalation_chain": config.get("escalation_chain", [contact.get("name", "") for contact in normalized_people[:1]]),
         "firm_info": config.get("firm_info", {}),
         "practice_areas": config.get("practice_areas", []),
         "default_attorney": config.get("default_attorney", "Forge Review"),
@@ -525,3 +885,20 @@ def _normalize_runtime_config(employee_id: str, config: dict[str, Any]) -> dict[
         "crm_fixtures": config.get("crm_fixtures", {}),
         "timezone": config.get("timezone", "America/New_York"),
     }
+
+
+def _parse_quiet_hours(value: Any) -> int | None:
+    lowered = str(value).strip().lower()
+    if not lowered:
+        return None
+    if lowered == "after_5pm":
+        return 17
+    if lowered == "after_6pm":
+        return 18
+    if lowered == "after_7pm":
+        return 19
+    return None
+
+
+def _normalize_correction_key(value: str) -> str:
+    return "-".join(str(value).strip().lower().split())[:120]

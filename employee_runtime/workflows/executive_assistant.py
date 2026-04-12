@@ -47,6 +47,18 @@ def create_handlers(components: dict[str, Any]) -> dict[str, NodeHandler]:
         plan = workflow_executor.plan(state["sanitization_result"]["sanitized_input"])
         state["workflow_output"] = {"plan": plan.model_dump(mode="json")}
         state["requires_human_approval"] = plan.requires_approval
+        state["novel_options"] = plan.novel_options
+        if plan.is_novel_situation:
+            state["escalation_reason"] = plan.guidance_request or "Novel situation guidance required."
+            await _log(
+                state,
+                "novel_situation_detected",
+                {
+                    "trigger": plan.novel_trigger,
+                    "recommended_option": plan.recommended_option,
+                    "options": plan.novel_options,
+                },
+            )
         await _log(state, "workflow_planned", state["workflow_output"]["plan"])
         return state
 
@@ -68,15 +80,30 @@ def create_handlers(components: dict[str, Any]) -> dict[str, NodeHandler]:
             "action_items": response.action_items,
             "schedule_updates": response.schedule_updates,
             "confidence_score": response.confidence_score,
-            "flags": ["approval required"] if state.get("requires_human_approval") else [],
+            "novel_options": response.novel_options,
+            "recommended_option": response.recommended_option,
+            "flags": (
+                ["guidance required"]
+                if response.needs_guidance
+                else ["approval required"] if state.get("requires_human_approval") else []
+            ),
         }
         state["response_summary"] = response.summary
+        state["novel_options"] = response.novel_options
         await _log(state, "output_produced", {"node": "draft_response", "confidence": response.confidence_score})
         return state
 
     async def request_approval(state: EmployeeState) -> EmployeeState:
-        state["delivery_status"] = "awaiting_approval"
-        await _log(state, "approval_requested", {"node": "request_approval"})
+        state["delivery_status"] = "awaiting_guidance" if state.get("novel_options") else "awaiting_approval"
+        await _log(
+            state,
+            "approval_requested",
+            {
+                "node": "request_approval",
+                "reason": state.get("escalation_reason", ""),
+                "novel": bool(state.get("novel_options")),
+            },
+        )
         return state
 
     async def deliver(state: EmployeeState) -> EmployeeState:

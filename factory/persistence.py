@@ -326,3 +326,18 @@ async def list_performance_metrics(session: AsyncSession, deployment_id: UUID) -
     )
     rows = (await session.execute(statement)).scalars().all()
     return [performance_metric_from_row(row) for row in rows]
+
+
+async def list_recent_performance_metrics(
+    session: AsyncSession,
+    deployment_id: UUID,
+    *,
+    metric_name: str | None = None,
+    limit: int = 50,
+) -> list[PerformanceMetric]:
+    statement = select(PerformanceMetricRow).where(PerformanceMetricRow.deployment_id == deployment_id)
+    if metric_name is not None:
+        statement = statement.where(PerformanceMetricRow.metric_name == metric_name)
+    statement = statement.order_by(desc(PerformanceMetricRow.recorded_at)).limit(limit)
+    rows = (await session.execute(statement)).scalars().all()
+    return [performance_metric_from_row(row) for row in rows]

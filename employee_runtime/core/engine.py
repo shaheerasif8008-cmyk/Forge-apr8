@@ -73,6 +73,8 @@ class EmployeeEngine:
             "result_card": {},
             "response_summary": "",
             "workflow_output": {},
+            "novel_options": [],
+            "correction_record": {},
             "delivery_method": "",
             "delivery_status": "",
             "errors": [],
