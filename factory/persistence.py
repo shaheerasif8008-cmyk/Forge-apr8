@@ -12,7 +12,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from factory.models.blueprint import EmployeeBlueprint
 from factory.models.build import Build
 from factory.models.deployment import Deployment
-from factory.models.orm import BlueprintRow, BuildRow, DeploymentRow, EmployeeRequirementsRow
+from factory.models.monitoring import MonitoringEvent, PerformanceMetric
+from factory.models.orm import (
+    BlueprintRow,
+    BuildRow,
+    DeploymentRow,
+    EmployeeRequirementsRow,
+    MonitoringEventRow,
+    PerformanceMetricRow,
+)
 from factory.models.requirements import EmployeeRequirements
 
 
@@ -62,7 +70,9 @@ def requirements_from_row(row: EmployeeRequirementsRow) -> EmployeeRequirements:
         {
             "id": row.id,
             "org_id": row.org_id,
+            "employee_type": row.employee_type,
             "name": row.name,
+            "role_title": row.role_title,
             "role_summary": row.role_summary,
             "primary_responsibilities": row.primary_responsibilities,
             "kpis": row.kpis,
@@ -72,8 +82,14 @@ def requirements_from_row(row: EmployeeRequirementsRow) -> EmployeeRequirements:
             "compliance_frameworks": row.compliance_frameworks,
             "risk_tier": row.risk_tier,
             "deployment_format": row.deployment_format,
+            "deployment_target": row.deployment_target,
             "supervisor_email": row.supervisor_email,
             "org_context": row.org_context,
+            "org_map": row.org_map,
+            "authority_matrix": row.authority_matrix,
+            "communication_rules": row.communication_rules,
+            "monitoring_preferences": row.monitoring_preferences,
+            "update_preferences": row.update_preferences,
             "raw_intake": row.raw_intake,
             "created_at": row.created_at,
         }
@@ -86,11 +102,18 @@ def blueprint_from_row(row: BlueprintRow) -> EmployeeBlueprint:
             "id": row.id,
             "requirements_id": row.requirements_id,
             "org_id": row.org_id,
+            "employee_type": row.employee_type,
             "employee_name": row.employee_name,
             "components": row.components,
             "custom_code_specs": row.custom_code_specs,
+            "workflow_id": row.workflow_id,
+            "tool_permissions": row.tool_permissions,
+            "identity_layers": row.identity_layers,
             "workflow_description": row.workflow_description,
             "autonomy_profile": row.autonomy_profile,
+            "monitoring_policy": row.monitoring_policy,
+            "deployment_spec": row.deployment_spec,
+            "ui_profile": row.ui_profile,
             "estimated_cost_per_task_usd": row.estimated_cost_per_task_usd,
             "architect_reasoning": row.architect_reasoning,
             "created_at": row.created_at,
@@ -110,7 +133,7 @@ def build_from_row(row: BuildRow) -> Build:
             "logs": row.logs,
             "artifacts": row.artifacts,
             "test_report": row.test_report,
-            "metadata": row.metadata,
+            "metadata": row.build_metadata,
             "created_at": row.created_at,
             "completed_at": row.completed_at,
         }
@@ -230,3 +253,76 @@ async def list_deployments_for_org(session: AsyncSession, org_id: UUID) -> list[
     )
     rows = (await session.execute(statement)).scalars().all()
     return [deployment_from_row(row) for row in rows]
+
+
+async def list_active_deployments(session: AsyncSession) -> list[Deployment]:
+    statement = select(DeploymentRow).where(DeploymentRow.status == "active")
+    rows = (await session.execute(statement)).scalars().all()
+    return [deployment_from_row(row) for row in rows]
+
+
+def monitoring_event_from_row(row: MonitoringEventRow) -> MonitoringEvent:
+    return MonitoringEvent.model_validate(
+        {
+            "id": row.id,
+            "deployment_id": row.deployment_id,
+            "org_id": row.org_id,
+            "severity": row.severity,
+            "category": row.category,
+            "title": row.title,
+            "detail": row.detail,
+            "resolved": row.resolved,
+            "occurred_at": row.occurred_at,
+        }
+    )
+
+
+def performance_metric_from_row(row: PerformanceMetricRow) -> PerformanceMetric:
+    return PerformanceMetric.model_validate(
+        {
+            "id": row.id,
+            "deployment_id": row.deployment_id,
+            "org_id": row.org_id,
+            "metric_name": row.metric_name,
+            "value": row.value,
+            "unit": row.unit,
+            "window_minutes": row.window_minutes,
+            "recorded_at": row.recorded_at,
+        }
+    )
+
+
+async def save_monitoring_event(session: AsyncSession, event: MonitoringEvent) -> MonitoringEvent:
+    payload = event.model_dump(mode="python")
+    payload["severity"] = event.severity.value
+    row = MonitoringEventRow(**payload)
+    session.add(row)
+    await session.flush()
+    return monitoring_event_from_row(row)
+
+
+async def list_monitoring_events(session: AsyncSession, deployment_id: UUID) -> list[MonitoringEvent]:
+    statement = (
+        select(MonitoringEventRow)
+        .where(MonitoringEventRow.deployment_id == deployment_id)
+        .order_by(desc(MonitoringEventRow.occurred_at))
+    )
+    rows = (await session.execute(statement)).scalars().all()
+    return [monitoring_event_from_row(row) for row in rows]
+
+
+async def save_performance_metric(session: AsyncSession, metric: PerformanceMetric) -> PerformanceMetric:
+    row = PerformanceMetricRow(**metric.model_dump(mode="python"))
+    session.add(row)
+    await session.flush()
+    return performance_metric_from_row(row)
+
+
+async def list_performance_metrics(session: AsyncSession, deployment_id: UUID) -> list[PerformanceMetric]:
+    statement = (
+        select(PerformanceMetricRow)
+        .where(PerformanceMetricRow.deployment_id == deployment_id)
+        .order_by(desc(PerformanceMetricRow.recorded_at))
+    )
+    rows = (await session.execute(statement)).scalars().all()
+    return [performance_metric_from_row(row) for row in rows]

@@ -21,6 +21,9 @@ class EmployeeState(TypedDict, total=False):
     qualification_decision: str
     qualification_reasoning: str
     brief: dict
+    result_card: dict
+    response_summary: str
+    workflow_output: dict
     delivery_method: str
     delivery_status: str
     errors: list

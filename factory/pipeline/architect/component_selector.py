@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from component_library.status import is_component_production_ready
 from factory.models.blueprint import SelectedComponent
-from factory.models.requirements import EmployeeRequirements
+from factory.models.requirements import EmployeeArchetype, EmployeeRequirements
 
-
-BASELINE_COMPONENTS: tuple[tuple[str, str, dict[str, object]], ...] = (
+LEGAL_BASELINE_COMPONENTS: tuple[tuple[str, str, dict[str, object]], ...] = (
     ("models", "anthropic_provider", {"model": "claude-3-5-sonnet-20241022"}),
     ("work", "text_processor", {}),
     ("work", "document_analyzer", {}),
@@ -20,6 +20,27 @@ BASELINE_COMPONENTS: tuple[tuple[str, str, dict[str, object]], ...] = (
     ("quality", "audit_system", {}),
     ("quality", "input_protection", {}),
     ("quality", "verification_layer", {}),
+)
+
+EXECUTIVE_ASSISTANT_COMPONENTS: tuple[tuple[str, str, dict[str, object]], ...] = (
+    ("models", "anthropic_provider", {"model": "claude-3-5-sonnet-20241022"}),
+    ("work", "workflow_executor", {}),
+    ("work", "communication_manager", {}),
+    ("work", "scheduler_manager", {}),
+    ("work", "draft_generator", {}),
+    ("tools", "email_tool", {}),
+    ("tools", "calendar_tool", {}),
+    ("tools", "messaging_tool", {}),
+    ("tools", "crm_tool", {}),
+    ("data", "operational_memory", {}),
+    ("data", "working_memory", {}),
+    ("data", "context_assembler", {}),
+    ("data", "org_context", {}),
+    ("quality", "confidence_scorer", {}),
+    ("quality", "audit_system", {}),
+    ("quality", "input_protection", {}),
+    ("quality", "verification_layer", {}),
+    ("quality", "autonomy_manager", {}),
 )
 
 TOOL_MAP: dict[str, str] = {
@@ -41,10 +62,15 @@ async def select_components(requirements: EmployeeRequirements) -> list[Selected
     Returns:
         List of SelectedComponent instances from the Component Library.
     """
-    # V1: rule-based selection centered on the current legal_intake runtime.
+    baseline = (
+        EXECUTIVE_ASSISTANT_COMPONENTS
+        if requirements.employee_type == EmployeeArchetype.EXECUTIVE_ASSISTANT
+        else LEGAL_BASELINE_COMPONENTS
+    )
     components: list[SelectedComponent] = [
         SelectedComponent(category=category, component_id=component_id, config=config)
-        for category, component_id, config in BASELINE_COMPONENTS
+        for category, component_id, config in baseline
+        if is_component_production_ready(component_id)
     ]
 
     known_component_ids = {component.component_id for component in components}
@@ -52,7 +78,8 @@ async def select_components(requirements: EmployeeRequirements) -> list[Selected
         normalized = tool_name.lower()
         for keyword, component_id in TOOL_MAP.items():
             if keyword in normalized and component_id not in known_component_ids:
-                components.append(SelectedComponent(category="tools", component_id=component_id))
+                if is_component_production_ready(component_id):
+                    components.append(SelectedComponent(category="tools", component_id=component_id))
                 known_component_ids.add(component_id)
 
     # Quality modules based on risk tier
@@ -62,7 +89,7 @@ async def select_components(requirements: EmployeeRequirements) -> list[Selected
     if requirements.risk_tier in (RiskTier.HIGH, RiskTier.CRITICAL):
         quality_base |= {"adversarial_review", "explainability", "approval_manager", "compliance_rules"}
     for q in quality_base:
-        if q not in known_component_ids:
+        if q not in known_component_ids and is_component_production_ready(q):
             components.append(SelectedComponent(category="quality", component_id=q))
             known_component_ids.add(q)
 

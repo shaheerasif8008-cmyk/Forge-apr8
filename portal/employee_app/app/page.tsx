@@ -6,7 +6,7 @@ import { ChatInput } from "@/components/ChatInput";
 import { MessageBubble } from "@/components/MessageBubble";
 import { SidebarPanels } from "@/components/SidebarPanels";
 import { StreamingIndicator } from "@/components/StreamingIndicator";
-import type { Approval, ChatMessage } from "@/components/types";
+import type { Approval, ChatMessage, EmployeeMeta } from "@/components/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_EMPLOYEE_API_URL ?? "http://localhost:8001";
 const WS_BASE = (process.env.NEXT_PUBLIC_EMPLOYEE_WS_URL ?? "ws://localhost:8001").replace(/\/$/, "");
@@ -18,6 +18,7 @@ export default function HomePage() {
   const [settings, setSettings] = useState<Record<string, unknown>>({});
   const [metrics, setMetrics] = useState<Record<string, unknown>>({});
   const [streaming, setStreaming] = useState(false);
+  const [meta, setMeta] = useState<EmployeeMeta | null>(null);
 
   const conversationId = "default";
 
@@ -36,9 +37,13 @@ export default function HomePage() {
 
   useEffect(() => {
     const load = async () => {
-      const response = await fetch(`${API_BASE}/api/v1/chat/history?conversation_id=${conversationId}`);
+      const [response, metaResponse] = await Promise.all([
+        fetch(`${API_BASE}/api/v1/chat/history?conversation_id=${conversationId}`),
+        fetch(`${API_BASE}/api/v1/meta`),
+      ]);
       const data = await response.json();
       setMessages(data.messages);
+      setMeta(await metaResponse.json());
       await loadSidebar();
     };
     void load();
@@ -119,11 +124,13 @@ export default function HomePage() {
         <section className="rounded-[34px] border border-ink/10 bg-white/55 p-5 shadow-card backdrop-blur">
           <div className="mb-5 flex items-center justify-between gap-4 border-b border-ink/10 pb-4">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.28em] text-ink/45">Arthur</div>
-              <h1 className="font-display text-4xl">Legal Intake Associate</h1>
+              <div className="text-xs font-semibold uppercase tracking-[0.28em] text-ink/45">
+                {meta?.employee_name ?? "Forge Employee"}
+              </div>
+              <h1 className="font-display text-4xl">{meta?.role_title ?? "Employee"}</h1>
             </div>
             <div className="rounded-full bg-gold/20 px-4 py-2 text-sm font-semibold text-ink">
-              Hosted web demo
+              {meta?.badge ?? "Hosted web demo"}
             </div>
           </div>
 
@@ -134,7 +141,15 @@ export default function HomePage() {
             {streaming ? <StreamingIndicator /> : null}
           </div>
 
-          <ChatInput onSend={sendMessage} />
+          <ChatInput
+            onSend={sendMessage}
+            placeholder={
+              meta?.workflow === "legal_intake"
+                ? "Paste an intake email or ask your employee to process a matter..."
+                : "Ask your employee to triage, schedule, draft, or coordinate work..."
+            }
+            footerLabel={meta?.deployment_format ?? "Hosted web slice"}
+          />
         </section>
 
         <aside className="min-h-[70vh]">

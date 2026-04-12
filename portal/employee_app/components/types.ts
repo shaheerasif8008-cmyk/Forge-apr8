@@ -1,9 +1,13 @@
 export type MessageType = "text" | "brief_card" | "approval_request" | "status_update";
 
 export type Brief = {
+  title?: string;
   brief_id?: string;
   executive_summary?: string;
+  drafted_response?: string;
   confidence_score?: number;
+  action_items?: string[];
+  schedule_updates?: string[];
   client_info?: {
     client_name?: string;
     client_email?: string;
@@ -21,6 +25,15 @@ export type Brief = {
   };
   next_steps?: string[];
   flags?: string[];
+};
+
+export type EmployeeMeta = {
+  employee_name: string;
+  role_title: string;
+  workflow: string;
+  badge: string;
+  capabilities: string[];
+  deployment_format: string;
 };
 
 export type ChatMessage = {

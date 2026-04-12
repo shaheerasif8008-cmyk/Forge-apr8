@@ -57,7 +57,14 @@ class TextProcessor(WorkCapability):
         estimated_value = self._extract_value(text)
         referral_source = self._extract_referral_source(lower)
         raw_summary = self._build_summary(client_name, matter_type, key_facts)
-        extraction_confidence = self._score_confidence(client_name, matter_type, key_facts, client_email)
+        extraction_confidence = self._score_confidence(
+            client_name,
+            matter_type,
+            key_facts,
+            client_email,
+            client_phone,
+            text,
+        )
 
         return LegalIntakeExtraction(
             client_name=client_name,
@@ -181,6 +188,8 @@ class TextProcessor(WorkCapability):
         matter_type: str,
         key_facts: list[str],
         client_email: str,
+        client_phone: str,
+        raw_text: str,
     ) -> float:
         score = 0.2
         if client_name:
@@ -189,6 +198,13 @@ class TextProcessor(WorkCapability):
             score += 0.2
         if client_email:
             score += 0.1
+        if client_phone:
+            score += 0.05
         if key_facts:
             score += min(0.3, 0.05 * len(key_facts))
+        lowered = raw_text.lower()
+        if "don't want to get into details" in lowered or "can someone call me" in lowered:
+            score -= 0.15
+        if not client_email and not client_phone:
+            score -= 0.1
         return round(min(score, 0.98), 2)

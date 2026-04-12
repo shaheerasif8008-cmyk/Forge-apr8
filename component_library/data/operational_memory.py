@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
-from uuid import UUID
 
-from sqlalchemy import cast, delete, select, String
+from sqlalchemy import String, cast, delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 

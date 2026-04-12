@@ -13,9 +13,8 @@ import litellm
 import pytest
 from pydantic import BaseModel
 
-from component_library.models.anthropic_provider import AnthropicProvider
 from component_library.interfaces import ComponentHealth
-
+from component_library.models.anthropic_provider import AnthropicProvider
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

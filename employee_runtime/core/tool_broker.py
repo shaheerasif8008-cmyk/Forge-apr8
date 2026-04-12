@@ -10,11 +10,13 @@ Every tool invocation MUST go through this broker. It:
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from datetime import datetime
+from typing import Any
+from uuid import UUID, uuid4
+
 import structlog
 from pydantic import BaseModel, Field
-from uuid import UUID, uuid4
-from datetime import datetime
-from typing import Any, Awaitable, Callable
 
 logger = structlog.get_logger(__name__)
 

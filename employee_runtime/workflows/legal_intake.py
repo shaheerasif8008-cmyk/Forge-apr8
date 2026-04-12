@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -12,11 +12,9 @@ from component_library.work.schemas import (
     AnalysisInput,
     ConfidenceInput,
     DraftInput,
-    LegalIntakeInput,
     VerificationInput,
 )
 from employee_runtime.core.state import EmployeeState
-
 
 NodeHandler = Callable[[EmployeeState], Awaitable[EmployeeState]]
 
@@ -99,6 +97,8 @@ def create_handlers(components: dict[str, Any]) -> dict[str, NodeHandler]:
         )
         verification = verification_layer.verify(VerificationInput(brief=brief))
         state["brief"] = brief.model_dump(mode="json")
+        state["result_card"] = state["brief"]
+        state["response_summary"] = brief.executive_summary
         state["verification_result"] = verification.model_dump()
         await _log(state, "output_produced", {"node": "generate_brief", "valid": verification.is_valid})
         return state
@@ -117,7 +117,7 @@ def create_handlers(components: dict[str, Any]) -> dict[str, NodeHandler]:
         return state
 
     async def log_completion(state: EmployeeState) -> EmployeeState:
-        state["completed_at"] = datetime.now(timezone.utc).isoformat()
+        state["completed_at"] = datetime.now(UTC).isoformat()
         await _log(state, "task_completed", {"node": "log_completion", "decision": state.get("qualification_decision", "")})
         return state
 

@@ -21,6 +21,7 @@ class ContextAssembler(DataSource):
         self._session_factory: async_sessionmaker[AsyncSession] | None = config.get("session_factory")
         self._operational_memory = config.get("operational_memory")
         self._system_identity = config.get("system_identity", "")
+        self._identity_layers = config.get("identity_layers", {})
         self._conversation_cache: dict[str, list[str]] = {}
 
     async def health_check(self) -> ComponentHealth:
@@ -41,14 +42,22 @@ class ContextAssembler(DataSource):
         token_budget: int = 8000,
     ) -> str:
         sections: list[str] = []
-        if self._system_identity:
-            sections.append(f"SYSTEM IDENTITY\n{self._system_identity}")
+        fixed_layers = [
+            ("LAYER 1 CORE IDENTITY", self._identity_layers.get("layer_1_core_identity", self._system_identity)),
+            ("LAYER 2 ROLE DEFINITION", self._identity_layers.get("layer_2_role_definition", "")),
+            ("LAYER 3 ORGANIZATIONAL MAP", self._identity_layers.get("layer_3_organizational_map", "")),
+            ("LAYER 4 BEHAVIORAL RULES", self._identity_layers.get("layer_4_behavioral_rules", "")),
+            ("LAYER 6 SELF AWARENESS", self._identity_layers.get("layer_6_self_awareness", "")),
+        ]
+        for title, body in fixed_layers:
+            if body:
+                sections.append(f"{title}\n{body}")
 
         if self._operational_memory is not None:
-            memories = await self._operational_memory.search(task_input, limit=8)
+            memories = await self._relevant_memories(task_input)
             if memories:
                 memory_lines = [f"- {item['key']}: {item['value']}" for item in memories]
-                sections.append("OPERATIONAL MEMORY\n" + "\n".join(memory_lines))
+                sections.append("LAYER 5 RETRIEVED CONTEXT\n" + "\n".join(memory_lines))
 
         history_text = await self._conversation_history(conversation_id)
         if history_text:
@@ -81,3 +90,28 @@ class ContextAssembler(DataSource):
 
     def _estimate_tokens(self, text: str) -> int:
         return int(len(text.split()) * 1.3)
+
+    async def _relevant_memories(self, task_input: str) -> list[dict[str, Any]]:
+        if self._operational_memory is None:
+            return []
+
+        queries = [task_input]
+        lowered = task_input.lower()
+        if "firm" in lowered:
+            queries.extend(["firm", "name"])
+        if "supervisor" in lowered:
+            queries.append("supervisor")
+
+        seen: set[tuple[str, str]] = set()
+        ordered: list[dict[str, Any]] = []
+        for query in queries:
+            for memory in await self._operational_memory.search(query, limit=8):
+                key = (str(memory.get("key", "")), str(memory.get("category", "")))
+                if key in seen:
+                    continue
+                seen.add(key)
+                ordered.append(memory)
+
+        if ordered:
+            return ordered[:8]
+        return await self._operational_memory.list_by_category("general")

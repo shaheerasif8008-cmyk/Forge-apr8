@@ -98,3 +98,29 @@ class ChainVerification(BaseModel):
     valid: bool
     checked_events: int
     failure_reason: str = ""
+
+
+class ExecutiveAssistantInput(BaseModel):
+    request_text: str
+    sender: str = ""
+    channel: str = "chat"
+
+
+class ExecutiveAssistantPlan(BaseModel):
+    summary: str
+    requested_actions: list[str] = Field(default_factory=list)
+    stakeholders: list[str] = Field(default_factory=list)
+    meeting_topics: list[str] = Field(default_factory=list)
+    deadlines: list[str] = Field(default_factory=list)
+    requires_approval: bool = False
+    rationale: str = ""
+
+
+class ExecutiveAssistantResult(BaseModel):
+    title: str
+    summary: str
+    drafted_response: str = ""
+    action_items: list[str] = Field(default_factory=list)
+    schedule_updates: list[str] = Field(default_factory=list)
+    crm_updates: list[str] = Field(default_factory=list)
+    confidence_score: float = 0.0

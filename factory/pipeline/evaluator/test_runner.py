@@ -6,11 +6,21 @@ import structlog
 
 from factory.models.build import Build, BuildLog, BuildStatus
 from factory.pipeline.evaluator.behavioral_tests import run_behavioral_tests
-from factory.pipeline.evaluator.container_runner import find_free_port, start_container, stop_container, wait_for_health
+from factory.pipeline.evaluator.container_runner import (
+    find_free_port,
+    start_container,
+    stop_container,
+    wait_for_health,
+)
+from factory.pipeline.evaluator.executive_assistant_tests import run_executive_assistant_tests
 from factory.pipeline.evaluator.functional_tests import run_functional_tests
 from factory.pipeline.evaluator.security_tests import run_security_tests
 
 logger = structlog.get_logger(__name__)
+
+
+def _suite_profile(build: Build) -> str:
+    return str(build.metadata.get("workflow_id", "legal_intake"))
 
 
 async def evaluate(build: Build) -> Build:
@@ -42,11 +52,15 @@ async def evaluate(build: Build) -> Build:
             )
             return build
 
+        workflow_id = _suite_profile(build)
         suites = {
-            "functional": await run_functional_tests(base_url),
             "security": await run_security_tests(base_url),
             "behavioral": await run_behavioral_tests(base_url),
         }
+        if workflow_id == "executive_assistant":
+            suites["functional"] = await run_executive_assistant_tests(base_url)
+        else:
+            suites["functional"] = await run_functional_tests(base_url)
         for suite_name, result in suites.items():
             build.logs.append(
                 BuildLog(

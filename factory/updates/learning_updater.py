@@ -2,5 +2,9 @@
 
 from __future__ import annotations
 
-# Pushes improved pattern recognition to deployed employees.
-# Clients can pause; defaults to on.
+from pydantic import BaseModel
+
+
+class LearningUpdateState(BaseModel):
+    enabled: bool = True
+    cadence: str = "continuous"

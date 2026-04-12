@@ -39,10 +39,10 @@ async def start_pipeline(requirements: EmployeeRequirements, build: Build) -> Bu
     from factory.pipeline.builder.assembler import assemble
     from factory.pipeline.builder.generator import generate
     from factory.pipeline.builder.packager import package
-    from factory.pipeline.evaluator.test_runner import evaluate
-    from factory.pipeline.evaluator.self_correction import correction_loop
     from factory.pipeline.deployer.activator import activate
     from factory.pipeline.deployer.provisioner import provision
+    from factory.pipeline.evaluator.self_correction import correction_loop
+    from factory.pipeline.evaluator.test_runner import evaluate
 
     session_factory = _ensure_session_factory()
     build.requirements_id = requirements.id

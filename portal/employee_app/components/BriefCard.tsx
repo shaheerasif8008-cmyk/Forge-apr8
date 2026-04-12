@@ -9,6 +9,81 @@ export function BriefCard({ brief, onDecision }: BriefCardProps) {
   const client = brief.client_info ?? {};
   const analysis = brief.analysis ?? {};
   const confidence = Math.round((brief.confidence_score ?? 0) * 100);
+  const isGenericCard = !client.client_name && !client.matter_type && Boolean(brief.title || brief.action_items?.length);
+
+  if (isGenericCard) {
+    return (
+      <div className="w-full rounded-[28px] border border-ink/10 bg-white/90 p-5 shadow-card">
+        <div className="flex items-start justify-between gap-4 border-b border-ink/10 pb-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.28em] text-ink/45">
+              Work Output
+            </div>
+            <div className="font-display text-2xl">{brief.title ?? "Task Summary"}</div>
+          </div>
+          <div className="rounded-full bg-paper px-3 py-2 text-sm font-semibold text-ink">
+            Confidence {confidence}%
+          </div>
+        </div>
+
+        <section className="mt-4 rounded-2xl bg-paper/60 p-4">
+          <div className="text-xs font-semibold uppercase tracking-[0.24em] text-ink/45">Summary</div>
+          <p className="mt-2 text-sm leading-6 text-ink/80">
+            {brief.executive_summary ?? "No summary available."}
+          </p>
+        </section>
+
+        {brief.drafted_response ? (
+          <section className="mt-4 rounded-2xl border border-ink/10 bg-white/80 p-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-ink/45">Drafted Response</div>
+            <p className="mt-2 text-sm leading-6 text-ink/80">{brief.drafted_response}</p>
+          </section>
+        ) : null}
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <section className="rounded-2xl border border-ink/10 bg-white/80 p-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-ink/45">Action Items</div>
+            <ul className="mt-2 space-y-2 text-sm text-ink/80">
+              {(brief.action_items ?? []).slice(0, 5).map((item) => (
+                <li key={item}>• {item}</li>
+              ))}
+            </ul>
+          </section>
+          <section className="rounded-2xl border border-ink/10 bg-white/80 p-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-ink/45">Schedule Updates</div>
+            <ul className="mt-2 space-y-2 text-sm text-ink/80">
+              {(brief.schedule_updates ?? []).slice(0, 5).map((item) => (
+                <li key={item}>• {item}</li>
+              ))}
+            </ul>
+          </section>
+        </div>
+
+        {onDecision ? (
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button
+              className="rounded-full bg-moss px-4 py-2 text-sm font-semibold text-white"
+              onClick={() => onDecision("approve")}
+            >
+              Approve
+            </button>
+            <button
+              className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white"
+              onClick={() => onDecision("modify")}
+            >
+              Modify
+            </button>
+            <button
+              className="rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink"
+              onClick={() => onDecision("decline")}
+            >
+              Decline
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="w-full rounded-[28px] border border-ink/10 bg-white/90 p-5 shadow-card">

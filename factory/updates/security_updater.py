@@ -2,5 +2,21 @@
 
 from __future__ import annotations
 
-# Applies CVE patches and encryption upgrades to deployed employees.
-# Clients can delay up to 30 days; after that, forced.
+from pydantic import BaseModel
+
+
+class SecurityUpdate(BaseModel):
+    update_id: str
+    title: str
+    severity: str
+    auto_apply: bool = True
+    rollbackable: bool = True
+
+
+DEFAULT_SECURITY_UPDATES = [
+    SecurityUpdate(
+        update_id="sec-001",
+        title="Base image refresh",
+        severity="high",
+    )
+]

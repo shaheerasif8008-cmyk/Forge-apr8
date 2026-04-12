@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 
 from component_library.quality.confidence_scorer import ConfidenceScorer
-from component_library.work.schemas import ConfidenceInput, DocumentAnalyzerOutput, LegalIntakeExtraction
+from component_library.work.schemas import (
+    ConfidenceInput,
+    DocumentAnalyzerOutput,
+    LegalIntakeExtraction,
+)
 
 
 @pytest.mark.anyio

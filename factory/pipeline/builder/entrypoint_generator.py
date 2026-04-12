@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 ENTRYPOINT_TEMPLATE = '''"""Forge Employee — auto-generated entry point."""
 from __future__ import annotations
 

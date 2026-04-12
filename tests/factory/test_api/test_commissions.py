@@ -7,7 +7,7 @@ from httpx import AsyncClient
 
 from factory.database import get_db_session
 from factory.main import app
-from factory.models.build import Build, BuildLog, BuildStatus
+from factory.models.build import BuildLog, BuildStatus
 from factory.models.deployment import Deployment, DeploymentStatus
 
 

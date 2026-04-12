@@ -13,8 +13,7 @@ import litellm
 import pytest
 from pydantic import BaseModel
 
-from component_library.models.litellm_router import LitellmRouter, TaskType, RouteRecord
-
+from component_library.models.litellm_router import LitellmRouter, RouteRecord, TaskType
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

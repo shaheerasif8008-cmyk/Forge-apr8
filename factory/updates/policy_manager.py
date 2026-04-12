@@ -14,3 +14,18 @@ class PolicyRule(BaseModel):
     action: str = Field(description="e.g. 'suppress_non_urgent_messages'")
     priority: int = Field(2, description="1=direct command, 2=portal rule, 3=adaptive")
     active: bool = True
+
+
+class PolicyManager:
+    def __init__(self) -> None:
+        self._policies: dict[str, list[PolicyRule]] = {}
+
+    def list_rules(self, deployment_id: str) -> list[PolicyRule]:
+        return list(self._policies.get(deployment_id, []))
+
+    def add_rule(self, deployment_id: str, rule: PolicyRule) -> PolicyRule:
+        self._policies.setdefault(deployment_id, []).append(rule)
+        return rule
+
+
+policy_manager = PolicyManager()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import structlog
@@ -54,4 +55,10 @@ async def generate(blueprint: EmployeeBlueprint, build: Build, iteration: int = 
         ))
 
     build.metadata["generated_files"] = generated_files
+    manifest_path = Path(str(build.metadata.get("manifest_path", "")))
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text())
+        manifest.setdefault("artifact_manifest", {})
+        manifest["artifact_manifest"]["generated_files"] = generated_files
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
     return build

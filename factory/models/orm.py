@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -36,12 +36,13 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # ── Base ──────────────────────────────────────────────────────────────────────
@@ -142,7 +143,9 @@ class EmployeeRequirementsRow(Base):
         ForeignKey("client_orgs.id", ondelete="RESTRICT"),
         nullable=False,
     )
+    employee_type: Mapped[str] = mapped_column(String(50), nullable=False, default="legal_intake_associate")
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    role_title: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     role_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # JSONB — list/dict fields
     primary_responsibilities: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
@@ -153,8 +156,14 @@ class EmployeeRequirementsRow(Base):
     compliance_frameworks: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     risk_tier: Mapped[str] = mapped_column(String(20), nullable=False, default="medium")
     deployment_format: Mapped[str] = mapped_column(String(20), nullable=False, default="web")
+    deployment_target: Mapped[str] = mapped_column(String(50), nullable=False, default="hosted_web")
     supervisor_email: Mapped[str] = mapped_column(String(320), nullable=False, default="")
     org_context: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    org_map: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    authority_matrix: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    communication_rules: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    monitoring_preferences: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    update_preferences: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     raw_intake: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -198,12 +207,19 @@ class BlueprintRow(Base):
     org_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), nullable=False
     )
+    employee_type: Mapped[str] = mapped_column(String(50), nullable=False, default="legal_intake_associate")
     employee_name: Mapped[str] = mapped_column(String(255), nullable=False)
     # JSONB — nested Pydantic model lists and dicts
     components: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     custom_code_specs: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    workflow_id: Mapped[str] = mapped_column(String(100), nullable=False, default="legal_intake")
+    tool_permissions: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    identity_layers: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     workflow_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     autonomy_profile: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    monitoring_policy: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    deployment_spec: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    ui_profile: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     estimated_cost_per_task_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     architect_reasoning: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
@@ -259,7 +275,7 @@ class BuildRow(Base):
     logs: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     artifacts: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     test_report: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    build_metadata: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -402,7 +418,7 @@ class ConversationRow(Base):
         onupdate=_utcnow,
     )
 
-    messages: Mapped[list["MessageRow"]] = relationship(
+    messages: Mapped[list[MessageRow]] = relationship(
         "MessageRow", back_populates="conversation", cascade="all, delete-orphan"
     )
 
@@ -428,7 +444,7 @@ class MessageRow(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     message_type: Mapped[str] = mapped_column(String(50), nullable=False, default="text")
-    metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    message_metadata: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -510,3 +526,49 @@ class AuditEventRow(Base):
         """
         raw = prev_hash + json.dumps(event_payload, sort_keys=True, default=str)
         return hashlib.sha256(raw.encode()).hexdigest()
+
+
+# ── monitoring_events ────────────────────────────────────────────────────────
+
+
+class MonitoringEventRow(Base):
+    __tablename__ = "monitoring_events"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    deployment_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    org_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="info")
+    category: Mapped[str] = mapped_column(String(50), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_monitoring_events_deployment_id", "deployment_id"),
+        Index("ix_monitoring_events_org_id", "org_id"),
+        Index("ix_monitoring_events_occurred_at", "occurred_at"),
+    )
+
+
+class PerformanceMetricRow(Base):
+    __tablename__ = "performance_metrics"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    deployment_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    org_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    metric_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    unit: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    window_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_performance_metrics_deployment_id", "deployment_id"),
+        Index("ix_performance_metrics_org_id", "org_id"),
+        Index("ix_performance_metrics_recorded_at", "recorded_at"),
+    )

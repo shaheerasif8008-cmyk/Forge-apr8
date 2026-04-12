@@ -60,9 +60,11 @@ async def assemble(
     generated_dir = build_dir / "generated"
     generated_dir.mkdir(exist_ok=True)
 
-    config = await generate_config(blueprint, requirements)
+    config = await generate_config(blueprint, requirements, build_dir=str(build_dir), generated_files=[])
     config_path = build_dir / "config.yaml"
     config_path.write_text(json.dumps(config, indent=2, sort_keys=True))
+    manifest_path = build_dir / "package_manifest.json"
+    manifest_path.write_text(json.dumps(config.get("manifest", {}), indent=2, sort_keys=True))
 
     await generate_entrypoint(build_dir)
     await generate_dockerfile(build_dir)
@@ -73,8 +75,10 @@ async def assemble(
         {
             "build_dir": str(build_dir),
             "config_path": str(config_path),
+            "manifest_path": str(manifest_path),
             "copied_components": copied_components,
             "generated_dir": str(generated_dir),
+            "workflow_id": blueprint.workflow_id,
         }
     )
     build.logs.append(

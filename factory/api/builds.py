@@ -24,3 +24,14 @@ async def get_build_by_id(
     if build is None:
         raise HTTPException(status_code=404, detail="not_found")
     return build
+
+
+@router.get("/{build_id}/events")
+async def get_build_events(
+    build_id: UUID,
+    session: AsyncSession = Depends(get_db_session),
+) -> list[dict]:
+    build = await get_build(session, build_id)
+    if build is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    return [log.model_dump(mode="json") for log in build.logs]

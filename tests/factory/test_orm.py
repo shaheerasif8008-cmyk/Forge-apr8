@@ -8,7 +8,6 @@ from factory.models.orm import (
     BlueprintRow,
     BuildRow,
     ClientOrgRow,
-    ClientRow,
     ConversationRow,
     DeploymentRow,
     EmployeeRequirementsRow,
@@ -30,6 +29,8 @@ def test_all_tables_registered_in_metadata() -> None:
         "conversations",
         "messages",
         "audit_events",
+        "monitoring_events",
+        "performance_metrics",
     }
     assert expected == table_names
 
@@ -65,6 +66,13 @@ def test_build_jsonb_columns() -> None:
     cols = {c.name: c for c in BuildRow.__table__.columns}
     for col_name in ("logs", "artifacts", "test_report", "metadata"):
         assert col_name in cols
+
+
+def test_reserved_json_columns_use_safe_attribute_names() -> None:
+    assert "build_metadata" in BuildRow.__mapper__.attrs
+    assert BuildRow.__table__.c["metadata"] is BuildRow.__mapper__.attrs["build_metadata"].columns[0]
+    assert "message_metadata" in MessageRow.__mapper__.attrs
+    assert MessageRow.__table__.c["metadata"] is MessageRow.__mapper__.attrs["message_metadata"].columns[0]
 
 
 def test_deployment_has_unique_build_id() -> None:

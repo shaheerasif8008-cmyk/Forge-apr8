@@ -8,7 +8,11 @@ from pydantic import BaseModel
 
 from component_library.interfaces import ComponentHealth, WorkCapability
 from component_library.registry import register
-from component_library.work.schemas import AnalysisInput, DocumentAnalyzerOutput, LegalIntakeExtraction
+from component_library.work.schemas import (
+    AnalysisInput,
+    DocumentAnalyzerOutput,
+    LegalIntakeExtraction,
+)
 
 
 @register("document_analyzer")
@@ -55,6 +59,10 @@ class DocumentAnalyzer(WorkCapability):
 
         if extraction.extraction_confidence < 0.65:
             risk_flags.append("Insufficient intake detail for confident qualification.")
+        if not extraction.client_email and not extraction.client_phone:
+            risk_flags.append("Missing direct contact information for immediate follow-up.")
+        if "don't want to get into details" in " ".join(extraction.key_facts).lower():
+            risk_flags.append("Prospect withheld key facts over email.")
 
         if "30 days" in extraction.raw_summary.lower() or extraction.urgency == "urgent":
             risk_flags.append("Possible statute of limitations or urgent filing deadline.")
@@ -64,7 +72,11 @@ class DocumentAnalyzer(WorkCapability):
             recommended_actions.extend(
                 ["Send decline response.", "Recommend local traffic or municipal counsel if appropriate."]
             )
-        elif extraction.extraction_confidence < 0.55 or not extraction.matter_type:
+        elif (
+            extraction.extraction_confidence < 0.72
+            or not extraction.matter_type
+            or (not extraction.client_email and not extraction.client_phone)
+        ):
             decision = "needs_review"
             recommended_actions.extend(
                 ["Request more factual detail from the prospect.", "Route to an attorney for judgment."]

@@ -11,7 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from factory.database import get_db_session
 from factory.models.build import Build, BuildLog, BuildStatus
 from factory.models.requirements import EmployeeRequirements
-from factory.persistence import get_deployment_for_build, get_latest_build_for_commission, get_requirements, save_build, save_requirements
+from factory.persistence import (
+    get_deployment_for_build,
+    get_latest_build_for_commission,
+    get_requirements,
+    save_build,
+    save_requirements,
+)
 from factory.workers.pipeline_worker import run_pipeline
 
 router = APIRouter(prefix="/commissions", tags=["commissions"])
@@ -43,7 +49,7 @@ class CommissionLogsResponse(BaseModel):
     logs: list[BuildLog]
 
 
-@router.post("/", response_model=CommissionAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post("", response_model=CommissionAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
 async def create_commission(
     payload: CommissionRequest,
     session: AsyncSession = Depends(get_db_session),

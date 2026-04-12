@@ -16,7 +16,7 @@ from factory.pipeline.evaluator.container_runner import wait_for_health
 router = APIRouter(prefix="/roster", tags=["roster"])
 
 
-@router.get("/", response_model=list[Deployment])
+@router.get("", response_model=list[Deployment])
 async def list_employees(
     org_id: UUID,
     session: AsyncSession = Depends(get_db_session),

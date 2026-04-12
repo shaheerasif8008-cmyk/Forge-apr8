@@ -7,18 +7,18 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from component_library.interfaces import BaseComponent
 
-_REGISTRY: dict[str, type["BaseComponent"]] = {}
+_REGISTRY: dict[str, type[BaseComponent]] = {}
 
 
 def register(component_id: str):
     """Decorator to register a component class."""
-    def decorator(cls: type["BaseComponent"]) -> type["BaseComponent"]:
+    def decorator(cls: type[BaseComponent]) -> type[BaseComponent]:
         _REGISTRY[component_id] = cls
         return cls
     return decorator
 
 
-def get_component(component_id: str) -> type["BaseComponent"]:
+def get_component(component_id: str) -> type[BaseComponent]:
     """Look up a component class by ID.
 
     Args:

@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 from uuid import UUID
 
-
 ARTIFACT_ROOT = Path("/tmp/forge-artifacts")
 
 

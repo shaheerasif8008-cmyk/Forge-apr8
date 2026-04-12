@@ -5,7 +5,6 @@ from __future__ import annotations
 # Import side effects — trigger all @register decorators
 import component_library.models.anthropic_provider  # noqa: F401
 import component_library.models.litellm_router  # noqa: F401
-
 from component_library.registry import get_component, list_components
 
 

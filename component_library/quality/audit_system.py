@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -61,7 +61,7 @@ class AuditSystem(QualityModule):
                 "details": details,
                 "prev_hash": prev_hash,
                 "hash": event_hash,
-                "occurred_at": datetime.now(timezone.utc).isoformat(),
+                "occurred_at": datetime.now(UTC).isoformat(),
                 "trace_id": trace_id,
             }
             self._events.append(event)

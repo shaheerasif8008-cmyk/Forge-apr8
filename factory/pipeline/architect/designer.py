@@ -6,9 +6,9 @@ import structlog
 
 from factory.models.blueprint import EmployeeBlueprint
 from factory.models.requirements import EmployeeRequirements
+from factory.pipeline.architect.blueprint_builder import assemble_blueprint
 from factory.pipeline.architect.component_selector import select_components
 from factory.pipeline.architect.gap_analyzer import identify_gaps
-from factory.pipeline.architect.blueprint_builder import assemble_blueprint
 
 logger = structlog.get_logger(__name__)
 

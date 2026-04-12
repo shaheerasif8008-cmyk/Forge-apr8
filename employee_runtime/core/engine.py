@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -37,10 +37,15 @@ class EmployeeEngine:
         self._app = self._graph.compile()
 
     def _build_graph(self, name: str) -> StateGraph:
-        if name == "legal_intake":
-            from employee_runtime.workflows.legal_intake import build_graph
-            return build_graph(self._components)
-        raise ValueError(f"Unknown workflow: {name}")
+        registry = {
+            "legal_intake": ("employee_runtime.workflows.legal_intake", "build_graph"),
+            "executive_assistant": ("employee_runtime.workflows.executive_assistant", "build_graph"),
+        }
+        if name not in registry:
+            raise ValueError(f"Unknown workflow: {name}")
+        module_name, attr = registry[name]
+        module = __import__(module_name, fromlist=[attr])
+        return getattr(module, attr)(self._components)
 
     def _initial_state(
         self,
@@ -65,13 +70,16 @@ class EmployeeEngine:
             "qualification_decision": "",
             "qualification_reasoning": "",
             "brief": {},
+            "result_card": {},
+            "response_summary": "",
+            "workflow_output": {},
             "delivery_method": "",
             "delivery_status": "",
             "errors": [],
             "audit_event_ids": [],
             "requires_human_approval": False,
             "escalation_reason": "",
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": datetime.now(UTC).isoformat(),
             "completed_at": "",
         }
 
@@ -99,11 +107,15 @@ class EmployeeEngine:
         metadata: dict[str, Any] | None = None,
         conversation_id: str = "",
     ) -> AsyncGenerator[dict[str, Any], None]:
-        if self._workflow_name != "legal_intake":
+        module_name = {
+            "legal_intake": "employee_runtime.workflows.legal_intake",
+            "executive_assistant": "employee_runtime.workflows.executive_assistant",
+        }.get(self._workflow_name)
+        if module_name is None:
             raise ValueError(f"Streaming not implemented for workflow: {self._workflow_name}")
-        from employee_runtime.workflows.legal_intake import run_streaming
+        module = __import__(module_name, fromlist=["run_streaming"])
 
-        async for event in run_streaming(
+        async for event in module.run_streaming(
             self._components,
             self._initial_state(task_input, input_type, metadata, conversation_id),
         ):

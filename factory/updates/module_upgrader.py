@@ -2,5 +2,10 @@
 
 from __future__ import annotations
 
-# New versions of existing capability modules (e.g. research_engine v2.0).
-# Client retains full control — preview, test, then install or decline.
+from pydantic import BaseModel
+
+
+class ModuleUpgrade(BaseModel):
+    component_id: str
+    target_version: str
+    summary: str

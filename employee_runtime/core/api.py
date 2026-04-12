@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -16,31 +15,23 @@ import component_library.data.operational_memory  # noqa: F401
 import component_library.data.org_context  # noqa: F401
 import component_library.data.working_memory  # noqa: F401
 import component_library.quality.audit_system  # noqa: F401
+import component_library.quality.autonomy_manager  # noqa: F401
 import component_library.quality.confidence_scorer  # noqa: F401
 import component_library.quality.input_protection  # noqa: F401
 import component_library.quality.verification_layer  # noqa: F401
+import component_library.tools.calendar_tool  # noqa: F401
+import component_library.tools.crm_tool  # noqa: F401
 import component_library.tools.email_tool  # noqa: F401
+import component_library.tools.messaging_tool  # noqa: F401
+import component_library.work.communication_manager  # noqa: F401
 import component_library.work.document_analyzer  # noqa: F401
 import component_library.work.draft_generator  # noqa: F401
+import component_library.work.scheduler_manager  # noqa: F401
 import component_library.work.text_processor  # noqa: F401
+import component_library.work.workflow_executor  # noqa: F401
 from component_library.component_factory import create_components
 from employee_runtime.core.engine import EmployeeEngine
 from employee_runtime.core.tool_broker import ToolBroker
-
-
-WELCOME_MESSAGE = """Hi Sarah, I'm Arthur — your legal intake associate.
-
-I've been configured for Cartwright & Associates. I know your practice areas are
-commercial litigation, employment law, and real estate.
-
-Here's what I can do:
-• Process intake emails — paste or type an email and I'll extract key information,
-  check for conflicts, and produce a structured brief
-• Qualify prospects — I'll assess whether a matter fits your firm's criteria
-  and recommend next steps
-• Morning briefings — I'll summarize activity and flag items needing your attention
-
-You can paste an intake email here, or ask me anything. What would you like to start with?"""
 
 
 class TaskRequest(BaseModel):
@@ -68,7 +59,7 @@ class SettingsPayload(BaseModel):
 class EmployeeRuntimeService:
     def __init__(self, employee_id: str, config: dict[str, Any]) -> None:
         self.employee_id = employee_id
-        self.config = config
+        self.config = _normalize_runtime_config(employee_id, config)
         self.components: dict[str, Any] = {}
         self.engine: EmployeeEngine | None = None
         self.tool_broker: ToolBroker | None = None
@@ -80,61 +71,74 @@ class EmployeeRuntimeService:
     async def initialize(self) -> None:
         if self.engine is not None:
             return
-        component_ids = [
-            "text_processor",
-            "document_analyzer",
-            "draft_generator",
-            "operational_memory",
-            "working_memory",
-            "context_assembler",
-            "org_context",
-            "confidence_scorer",
-            "audit_system",
-            "input_protection",
-            "verification_layer",
-            "email_tool",
-        ]
-        component_config = {
-            "text_processor": {},
-            "document_analyzer": {"practice_areas": self.config.get("practice_areas", [])},
-            "draft_generator": {"default_attorney": self.config.get("default_attorney", "Review Attorney")},
-            "operational_memory": {
-                "org_id": self.config["org_id"],
-                "employee_id": self.employee_id,
-            },
-            "working_memory": {
-                "org_id": self.config["org_id"],
-                "employee_id": self.employee_id,
-                "redis_url": self.config.get("redis_url", ""),
-            },
-            "context_assembler": {
-                "operational_memory": None,
-                "system_identity": self.config.get("system_identity", ""),
-            },
-            "org_context": {
-                "people": self.config.get("people", []),
-                "escalation_chain": self.config.get("escalation_chain", []),
-                "firm_info": self.config.get("firm_info", {}),
-            },
-            "confidence_scorer": {},
-            "audit_system": {},
-            "input_protection": {},
-            "verification_layer": {},
-            "email_tool": {"fixtures": self.config.get("email_fixtures", [])},
-        }
+
+        component_ids = [component["id"] for component in self.config["components"]]
+        component_config = self._component_config()
         self.components = await create_components(component_ids, component_config)
-        self.components["context_assembler"]._operational_memory = self.components["operational_memory"]
+
+        if "context_assembler" in self.components and "operational_memory" in self.components:
+            self.components["context_assembler"]._operational_memory = self.components["operational_memory"]
+
+        tool_ids = [component_id for component_id in component_ids if component_id.endswith("_tool")]
+        tools = {tool_id: self.components[tool_id] for tool_id in tool_ids if tool_id in self.components}
         self.tool_broker = ToolBroker(
             employee_id=self.employee_id,
-            allowed_tools=["email_tool"],
-            tools={"email_tool": self.components["email_tool"]},
-            audit_logger=self.components["audit_system"].log_event,
+            allowed_tools=self.config["tool_permissions"],
+            tools=tools,
+            audit_logger=self.components.get("audit_system", None).log_event if self.components.get("audit_system") else None,
         )
         self.engine = EmployeeEngine(
-            "legal_intake",
+            self.config["workflow"],
             self.components,
             {"employee_id": self.employee_id, "org_id": self.config["org_id"]},
         )
+
+    def _component_config(self) -> dict[str, dict[str, Any]]:
+        component_config = {component["id"]: dict(component.get("config", {})) for component in self.config["components"]}
+        component_config.setdefault("operational_memory", {}).update(
+            {"org_id": self.config["org_id"], "employee_id": self.employee_id}
+        )
+        component_config.setdefault("working_memory", {}).update(
+            {
+                "org_id": self.config["org_id"],
+                "employee_id": self.employee_id,
+                "redis_url": self.config.get("redis_url", ""),
+            }
+        )
+        component_config.setdefault("context_assembler", {}).update(
+            {
+                "operational_memory": None,
+                "system_identity": self.config["identity_layers"]["layer_2_role_definition"],
+                "identity_layers": self.config["identity_layers"],
+            }
+        )
+        component_config.setdefault("org_context", {}).update(
+            {
+                "people": self.config["org_map"],
+                "escalation_chain": self.config.get("escalation_chain", []),
+                "firm_info": self.config.get("firm_info", {}),
+            }
+        )
+        component_config.setdefault("document_analyzer", {}).update(
+            {"practice_areas": self.config.get("practice_areas", [])}
+        )
+        component_config.setdefault("draft_generator", {}).update(
+            {"default_attorney": self.config.get("default_attorney", "Forge Review")}
+        )
+        component_config.setdefault("communication_manager", {}).update(
+            {
+                "signature": self.config["employee_name"],
+                "voice": "clear and action-oriented",
+            }
+        )
+        component_config.setdefault("scheduler_manager", {}).update(
+            {"timezone": self.config.get("timezone", "America/New_York")}
+        )
+        component_config.setdefault("email_tool", {}).update({"fixtures": self.config.get("email_fixtures", [])})
+        component_config.setdefault("calendar_tool", {}).update({"fixtures": self.config.get("calendar_fixtures", [])})
+        component_config.setdefault("messaging_tool", {}).update({"fixtures": self.config.get("message_fixtures", [])})
+        component_config.setdefault("crm_tool", {}).update({"fixtures": self.config.get("crm_fixtures", {})})
+        return component_config
 
     def _default_conversation_id(self) -> str:
         return self.config.get("default_conversation_id", "default")
@@ -146,7 +150,7 @@ class EmployeeRuntimeService:
                 "id": conv_id,
                 "employee_id": self.employee_id,
                 "org_id": str(self.config["org_id"]),
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
             }
             self.messages[conv_id] = []
         return conv_id
@@ -166,7 +170,7 @@ class EmployeeRuntimeService:
             "content": content,
             "message_type": message_type,
             "metadata": metadata or {},
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
         self.messages[conversation_id].append(message)
         return message
@@ -175,39 +179,63 @@ class EmployeeRuntimeService:
         conv_id = await self.ensure_conversation(conversation_id)
         history = list(self.messages[conv_id])
         if not history:
-            history.append(
-                await self.add_message(conv_id, "assistant", WELCOME_MESSAGE, "text", {"first_run": True})
-            )
+            history.append(await self.add_message(conv_id, "assistant", self.welcome_message(), "text", {"first_run": True}))
         return history
+
+    def welcome_message(self) -> str:
+        capabilities = self.config["ui"].get("capabilities", [])[:3]
+        capability_lines = "\n".join(f"• {capability}" for capability in capabilities) if capabilities else "• Handle day-to-day work"
+        return (
+            f"Hi, I'm {self.config['employee_name']}.\n\n"
+            f"Role: {self.config['role_title']}.\n"
+            f"Workflow: {self.config['workflow'].replace('_', ' ')}.\n\n"
+            f"Core capabilities:\n{capability_lines}\n\n"
+            "Send me work in natural language and I'll process it end-to-end."
+        )
 
     async def submit_task(self, request: TaskRequest) -> dict[str, Any]:
         if self.engine is None:
             raise RuntimeError("Employee runtime service is not initialized.")
+
         conv_id = await self.ensure_conversation(request.conversation_id)
         await self.add_message(conv_id, "user", request.input, "text", dict(request.context))
         result = await self.engine.process_task(
             request.input,
-            input_type=str(request.context.get("input_type", "email")),
+            input_type=str(request.context.get("input_type", "chat")),
             metadata=request.context,
             conversation_id=conv_id,
         )
         task_id = result["task_id"]
         self.tasks[task_id] = result
-        await self.add_message(conv_id, "assistant", "Intake brief ready for review.", "status_update", {"task_id": task_id})
+
+        summary = self._result_summary(result)
+        await self.add_message(conv_id, "assistant", summary, "status_update", {"task_id": task_id})
         approval_message = await self.add_message(
             conv_id,
             "assistant",
-            result.get("brief", {}).get("executive_summary", ""),
+            summary,
             "approval_request",
             {
                 "task_id": task_id,
                 "status": "pending",
-                "brief": result.get("brief", {}),
+                "brief": self._result_card(result),
                 "decision": "",
             },
         )
         self.approvals[approval_message["id"]] = approval_message
         return result
+
+    def _result_summary(self, result: dict[str, Any]) -> str:
+        return (
+            str(result.get("response_summary"))
+            or str(result.get("brief", {}).get("executive_summary", ""))
+            or str(result.get("result_card", {}).get("executive_summary", "Task completed."))
+        )
+
+    def _result_card(self, result: dict[str, Any]) -> dict[str, Any]:
+        if isinstance(result.get("result_card"), dict) and result["result_card"]:
+            return result["result_card"]
+        return result.get("brief", {})
 
     async def task_status(self, task_id: str) -> dict[str, Any]:
         if task_id not in self.tasks:
@@ -216,7 +244,7 @@ class EmployeeRuntimeService:
 
     async def task_brief(self, task_id: str) -> dict[str, Any]:
         task = await self.task_status(task_id)
-        return task.get("brief", {})
+        return self._result_card(task)
 
     async def list_approvals(self) -> list[dict[str, Any]]:
         return [approval for approval in self.approvals.values() if approval["metadata"].get("status") == "pending"]
@@ -228,12 +256,13 @@ class EmployeeRuntimeService:
         approval["metadata"]["status"] = decision
         approval["metadata"]["decision"] = decision
         approval["metadata"]["note"] = note
-        await self.components["audit_system"].log_event(
-            employee_id=self.employee_id,
-            org_id=str(self.config["org_id"]),
-            event_type="approval_decided",
-            details={"message_id": message_id, "decision": decision, "note": note},
-        )
+        if "audit_system" in self.components:
+            await self.components["audit_system"].log_event(
+                employee_id=self.employee_id,
+                org_id=str(self.config["org_id"]),
+                event_type="approval_decided",
+                details={"message_id": message_id, "decision": decision, "note": note},
+            )
         return approval
 
     async def get_settings(self) -> dict[str, Any]:
@@ -249,6 +278,8 @@ class EmployeeRuntimeService:
         return await self.get_settings()
 
     async def activity(self) -> list[dict[str, Any]]:
+        if "audit_system" not in self.components:
+            return []
         return await self.components["audit_system"].get_trail(self.employee_id)
 
     async def metrics(self) -> dict[str, Any]:
@@ -271,6 +302,16 @@ class EmployeeRuntimeService:
             "avg_duration_seconds": 0.0,
         }
 
+    async def meta(self) -> dict[str, Any]:
+        return {
+            "employee_name": self.config["employee_name"],
+            "role_title": self.config["role_title"],
+            "workflow": self.config["workflow"],
+            "badge": self.config["ui"].get("app_badge", ""),
+            "capabilities": self.config["ui"].get("capabilities", []),
+            "deployment_format": self.config["deployment_format"],
+        }
+
     async def send_morning_briefing(self, conversation_id: str = "") -> dict[str, Any]:
         conv_id = await self.ensure_conversation(conversation_id)
         metrics = await self.metrics()
@@ -279,7 +320,7 @@ class EmployeeRuntimeService:
             f"Average confidence {metrics['avg_confidence']}."
         )
         message = await self.add_message(conv_id, "system", content, "status_update", {"briefing": True})
-        if self.tool_broker is not None:
+        if self.tool_broker is not None and "email_tool" in self.config["tool_permissions"]:
             await self.tool_broker.execute(
                 "email_tool",
                 "send",
@@ -292,39 +333,7 @@ class EmployeeRuntimeService:
 
 
 def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) -> FastAPI:
-    """Create the standard FastAPI app for a deployed employee."""
-    runtime_config = {
-        "org_id": (config or {}).get("org_id", "demo-org"),
-        "practice_areas": (config or {}).get(
-            "practice_areas",
-            ["personal injury", "employment", "commercial dispute", "real estate"],
-        ),
-        "default_attorney": (config or {}).get("default_attorney", "Arthur Review"),
-        "supervisor_email": (config or {}).get("supervisor_email", "partner@cartwright.example"),
-        "system_identity": (config or {}).get(
-            "system_identity",
-            "You are Arthur, a legal intake associate for Cartwright & Associates.",
-        ),
-        "people": (config or {}).get(
-            "people",
-            [
-                {
-                    "name": "Sarah Cartwright",
-                    "role": "Managing Partner",
-                    "email": "partner@cartwright.example",
-                    "relationship": "supervisor",
-                }
-            ],
-        ),
-        "escalation_chain": (config or {}).get("escalation_chain", ["Sarah Cartwright"]),
-        "firm_info": (config or {}).get(
-            "firm_info",
-            {"name": "Cartwright & Associates", "practice_areas": ["commercial litigation", "employment law", "real estate"]},
-        ),
-        "redis_url": (config or {}).get("redis_url", ""),
-        "email_fixtures": (config or {}).get("email_fixtures", []),
-    }
-    service = EmployeeRuntimeService(employee_id, runtime_config)
+    service = EmployeeRuntimeService(employee_id, config or {})
 
     async def ensure_ready() -> None:
         await service.initialize()
@@ -342,11 +351,16 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
         await ensure_ready()
         return {"status": "ok", "employee_id": employee_id}
 
+    @app.get("/api/v1/meta")
+    async def meta() -> dict[str, Any]:
+        await ensure_ready()
+        return await service.meta()
+
     @app.post("/api/v1/chat")
     async def chat(request: TaskRequest) -> dict[str, Any]:
         await ensure_ready()
         result = await service.submit_task(request)
-        return {"task_id": result["task_id"], "message_type": "brief_card", "data": result.get("brief", {})}
+        return {"task_id": result["task_id"], "message_type": "brief_card", "data": service._result_card(result)}
 
     @app.get("/api/v1/chat/history")
     async def chat_history(conversation_id: str = "") -> dict[str, Any]:
@@ -360,8 +374,8 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
         return TaskResponse(
             task_id=result["task_id"],
             status="completed",
-            output=result.get("qualification_reasoning", ""),
-            brief=result.get("brief", {}),
+            output=service._result_summary(result),
+            brief=service._result_card(result),
         )
 
     @app.get("/api/v1/tasks/{task_id}")
@@ -425,6 +439,7 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
                     continue
                 conversation_id = await service.ensure_conversation(payload.get("conversation_id", ""))
                 await service.add_message(conversation_id, "user", payload["content"], "text", {})
+                assert service.engine is not None
                 async for event in service.engine.process_task_streaming(
                     payload["content"],
                     conversation_id=conversation_id,
@@ -435,19 +450,78 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
                         state = event["state"]
                         task_id = state["task_id"]
                         service.tasks[task_id] = state
+                        card = service._result_card(state)
+                        summary = service._result_summary(state)
                         approval_message = await service.add_message(
                             conversation_id,
                             "assistant",
-                            state.get("brief", {}).get("executive_summary", ""),
+                            summary,
                             "approval_request",
-                            {"task_id": task_id, "status": "pending", "brief": state.get("brief", {})},
+                            {"task_id": task_id, "status": "pending", "brief": card},
                         )
                         service.approvals[approval_message["id"]] = approval_message
-                        summary = state.get("brief", {}).get("executive_summary", "")
                         for token in summary.split():
                             await websocket.send_json({"type": "token", "content": f"{token} "})
-                        await websocket.send_json({"type": "complete", "message_type": "brief_card", "data": state.get("brief", {})})
+                        await websocket.send_json({"type": "complete", "message_type": "brief_card", "data": card})
         except WebSocketDisconnect:
             return
 
     return app
+
+
+def _normalize_runtime_config(employee_id: str, config: dict[str, Any]) -> dict[str, Any]:
+    raw_manifest = config.get("manifest", config)
+    workflow = str(raw_manifest.get("workflow", config.get("workflow", "legal_intake")))
+    role_title = str(raw_manifest.get("role_title", config.get("employee_name", "Forge Employee")))
+    employee_name = str(raw_manifest.get("employee_name", config.get("employee_name", employee_id)))
+
+    components = raw_manifest.get("components") or [
+        {"id": "text_processor", "category": "work", "config": {}},
+        {"id": "document_analyzer", "category": "work", "config": {}},
+        {"id": "draft_generator", "category": "work", "config": {}},
+        {"id": "email_tool", "category": "tools", "config": {}},
+        {"id": "operational_memory", "category": "data", "config": {}},
+        {"id": "working_memory", "category": "data", "config": {}},
+        {"id": "context_assembler", "category": "data", "config": {}},
+        {"id": "org_context", "category": "data", "config": {}},
+        {"id": "confidence_scorer", "category": "quality", "config": {}},
+        {"id": "audit_system", "category": "quality", "config": {}},
+        {"id": "input_protection", "category": "quality", "config": {}},
+        {"id": "verification_layer", "category": "quality", "config": {}},
+    ]
+    tool_permissions = list(raw_manifest.get("tool_permissions") or [component["id"] for component in components if str(component["id"]).endswith("_tool")])
+    capabilities = list(raw_manifest.get("ui", {}).get("capabilities") or config.get("primary_responsibilities", []))
+    identity_layers = raw_manifest.get("identity_layers") or {
+        "layer_1_core_identity": "You are a Forge AI Employee.",
+        "layer_2_role_definition": config.get("system_identity", f"You are {employee_name}."),
+        "layer_3_organizational_map": "Work with your supervisor and colleagues.",
+        "layer_4_behavioral_rules": "Follow direct commands, then portal rules, then adaptive learning.",
+        "layer_5_retrieved_context": "",
+        "layer_6_self_awareness": f"Workflow {workflow}; tools {', '.join(tool_permissions)}.",
+    }
+
+    org_map = raw_manifest.get("org_map") or config.get("people", [])
+    return {
+        "employee_id": str(raw_manifest.get("employee_id", employee_id)),
+        "org_id": str(raw_manifest.get("org_id", config.get("org_id", "demo-org"))),
+        "employee_name": employee_name,
+        "role_title": role_title,
+        "workflow": workflow,
+        "components": components,
+        "tool_permissions": tool_permissions,
+        "identity_layers": identity_layers,
+        "ui": raw_manifest.get("ui", {"app_badge": "Hosted web", "capabilities": capabilities}),
+        "org_map": org_map,
+        "escalation_chain": config.get("escalation_chain", [contact.get("name", "") for contact in org_map[:1]]),
+        "firm_info": config.get("firm_info", {}),
+        "practice_areas": config.get("practice_areas", []),
+        "default_attorney": config.get("default_attorney", "Forge Review"),
+        "supervisor_email": config.get("supervisor_email", "supervisor@example.com"),
+        "deployment_format": config.get("deployment_format", raw_manifest.get("deployment", {}).get("format", "web")),
+        "redis_url": config.get("redis_url", ""),
+        "email_fixtures": config.get("email_fixtures", []),
+        "calendar_fixtures": config.get("calendar_fixtures", []),
+        "message_fixtures": config.get("message_fixtures", []),
+        "crm_fixtures": config.get("crm_fixtures", {}),
+        "timezone": config.get("timezone", "America/New_York"),
+    }
