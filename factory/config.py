@@ -23,6 +23,8 @@ class FactorySettings(BaseSettings):
     log_level: str = Field("INFO")
     human_review_required: bool = Field(True)
     max_generation_iterations: int = Field(5)
+    generator_model: str = Field("anthropic/claude-3-5-sonnet-20241022")
+    generator_test_timeout: int = Field(60)
     evaluator_timeout_seconds: int = Field(600)
 
     # ── Database ─────────────────────────────────────────────────

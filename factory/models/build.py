@@ -30,7 +30,9 @@ class BuildLog(BaseModel):
 
 
 class BuildArtifact(BaseModel):
-    artifact_type: str = Field(description="container_image | config_bundle | test_report")
+    artifact_type: str = Field(
+        description="container_image | desktop_installer | server_package | config_bundle | test_report"
+    )
     location: str = Field(description="S3 URI or container registry tag")
     checksum: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)

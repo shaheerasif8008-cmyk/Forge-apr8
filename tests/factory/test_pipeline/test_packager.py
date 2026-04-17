@@ -14,7 +14,9 @@ from factory.pipeline.builder.packager import package
 @pytest.mark.anyio
 async def test_packager_builds_and_records_artifact(sample_build, monkeypatch, tmp_path) -> None:
     sample_build.metadata["build_dir"] = str(tmp_path)
+    sample_build.metadata["frontend_dir"] = str(tmp_path / "portal" / "employee_app")
     Path(sample_build.metadata["build_dir"]).mkdir(parents=True, exist_ok=True)
+    Path(sample_build.metadata["frontend_dir"]).mkdir(parents=True, exist_ok=True)
 
     calls: list[list[str]] = []
 
@@ -33,15 +35,21 @@ async def test_packager_builds_and_records_artifact(sample_build, monkeypatch, t
     assert result.metadata["image_tag"].startswith(f"forge-employee-{sample_build.id}")
     assert result.metadata["image_tarball"].endswith("employee.tar")
     assert result.artifacts[0].location.endswith("employee.tar")
-    assert calls[0][:3] == ["docker", "build", "-t"]
+    assert calls[0] == ["npm", "ci"]
+    assert calls[1] == ["npm", "run", "build"]
+    assert calls[2][:3] == ["docker", "build", "-t"]
 
 
 @pytest.mark.anyio
 async def test_packager_handles_docker_failure(sample_build, monkeypatch, tmp_path) -> None:
     sample_build.metadata["build_dir"] = str(tmp_path)
+    sample_build.metadata["frontend_dir"] = str(tmp_path / "portal" / "employee_app")
     Path(sample_build.metadata["build_dir"]).mkdir(parents=True, exist_ok=True)
+    Path(sample_build.metadata["frontend_dir"]).mkdir(parents=True, exist_ok=True)
 
     def fake_run(command, **kwargs):
+        if command[:2] == ["npm", "ci"] or command[:3] == ["npm", "run", "build"]:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
         return SimpleNamespace(returncode=1, stdout="", stderr="build failed")
 
     monkeypatch.setattr("factory.pipeline.builder.packager.subprocess.run", fake_run)

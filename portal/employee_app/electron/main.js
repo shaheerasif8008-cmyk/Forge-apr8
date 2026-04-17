@@ -1,7 +1,7 @@
-const { app, BrowserWindow, Notification } = require('electron')
+const { app, BrowserWindow } = require('electron')
 const path = require('path')
 
-const EMPLOYEE_APP_URL = process.env.EMPLOYEE_APP_URL || 'http://localhost:3001'
+const FORGE_BACKEND_URL = process.env.FORGE_BACKEND_URL || process.env.EMPLOYEE_APP_URL || ''
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -14,7 +14,11 @@ function createWindow() {
     },
     titleBarStyle: 'hiddenInset',
   })
-  win.loadURL(EMPLOYEE_APP_URL)
+  if (FORGE_BACKEND_URL) {
+    win.loadURL(FORGE_BACKEND_URL)
+    return
+  }
+  win.loadFile(path.join(__dirname, '..', 'out', 'index.html'))
 }
 
 app.whenReady().then(createWindow)

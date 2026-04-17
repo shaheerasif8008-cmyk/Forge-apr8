@@ -17,6 +17,7 @@ from employee_runtime.core.api import create_employee_app
 
 CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
 CONFIG = json.loads(CONFIG_PATH.read_text())
+CONFIG["static_dir"] = str(Path(__file__).resolve().parent / "static")
 app = create_employee_app(CONFIG["employee_id"], CONFIG)
 
 

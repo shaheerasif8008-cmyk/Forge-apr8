@@ -2,14 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { employeeAppConfig, resolveApiBaseUrl, resolveWsBaseUrl } from "@/app/config";
 import { ChatInput } from "@/components/ChatInput";
 import { MessageBubble } from "@/components/MessageBubble";
 import { SidebarPanels } from "@/components/SidebarPanels";
 import { StreamingIndicator } from "@/components/StreamingIndicator";
 import type { Approval, ChatMessage, EmployeeMeta, MemorySnapshot, UpdateStatus } from "@/components/types";
-
-const API_BASE = process.env.NEXT_PUBLIC_EMPLOYEE_API_URL ?? "http://localhost:8001";
-const WS_BASE = (process.env.NEXT_PUBLIC_EMPLOYEE_WS_URL ?? "ws://localhost:8001").replace(/\/$/, "");
 
 export default function HomePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -23,15 +21,17 @@ export default function HomePage() {
   const [meta, setMeta] = useState<EmployeeMeta | null>(null);
 
   const conversationId = "default";
+  const apiBase = resolveApiBaseUrl();
+  const wsBase = resolveWsBaseUrl();
 
   async function loadSidebar() {
     const [approvalRes, activityRes, settingsRes, metricsRes, memoryRes, updatesRes] = await Promise.all([
-      fetch(`${API_BASE}/api/v1/approvals`),
-      fetch(`${API_BASE}/api/v1/activity`),
-      fetch(`${API_BASE}/api/v1/settings`),
-      fetch(`${API_BASE}/api/v1/metrics`),
-      fetch(`${API_BASE}/api/v1/memory`),
-      fetch(`${API_BASE}/api/v1/updates`),
+      fetch(`${apiBase}/api/v1/approvals`),
+      fetch(`${apiBase}/api/v1/activity`),
+      fetch(`${apiBase}/api/v1/settings`),
+      fetch(`${apiBase}/api/v1/metrics`),
+      fetch(`${apiBase}/api/v1/memory`),
+      fetch(`${apiBase}/api/v1/updates`),
     ]);
     setApprovals(await approvalRes.json());
     setActivity(await activityRes.json());
@@ -44,19 +44,21 @@ export default function HomePage() {
   useEffect(() => {
     const load = async () => {
       const [response, metaResponse] = await Promise.all([
-        fetch(`${API_BASE}/api/v1/chat/history?conversation_id=${conversationId}`),
-        fetch(`${API_BASE}/api/v1/meta`),
+        fetch(`${apiBase}/api/v1/chat/history?conversation_id=${conversationId}`),
+        fetch(`${apiBase}/api/v1/meta`),
       ]);
       const data = await response.json();
       setMessages(data.messages);
-      setMeta(await metaResponse.json());
+      if (metaResponse.ok) {
+        setMeta(await metaResponse.json());
+      }
       await loadSidebar();
     };
     void load();
-  }, []);
+  }, [apiBase]);
 
   async function decideApproval(messageId: string, decision: "approve" | "decline" | "modify") {
-    await fetch(`${API_BASE}/api/v1/approvals/${messageId}/decide`, {
+    await fetch(`${apiBase}/api/v1/approvals/${messageId}/decide`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ decision, note: "" }),
@@ -71,7 +73,7 @@ export default function HomePage() {
       { id: `local-${Date.now()}`, role: "user", content, message_type: "text" },
     ]);
 
-    const socket = new WebSocket(`${WS_BASE}/api/v1/ws`);
+    const socket = new WebSocket(`${wsBase}/api/v1/ws`);
     let streamedText = "";
     socket.onopen = () => {
       socket.send(JSON.stringify({ type: "chat_message", content, conversation_id: conversationId }));
@@ -131,12 +133,12 @@ export default function HomePage() {
           <div className="mb-5 flex items-center justify-between gap-4 border-b border-ink/10 pb-4">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.28em] text-ink/45">
-                {meta?.employee_name ?? "Forge Employee"}
+                {meta?.employee_name ?? employeeAppConfig.employeeName}
               </div>
-              <h1 className="font-display text-4xl">{meta?.role_title ?? "Employee"}</h1>
+              <h1 className="font-display text-4xl">{meta?.role_title ?? employeeAppConfig.employeeRole}</h1>
             </div>
             <div className="rounded-full bg-gold/20 px-4 py-2 text-sm font-semibold text-ink">
-              {meta?.badge ?? "Hosted web demo"}
+              {meta?.badge ?? employeeAppConfig.deploymentFormat}
             </div>
           </div>
 
@@ -154,7 +156,7 @@ export default function HomePage() {
                 ? "Paste an intake email or ask your employee to process a matter..."
                 : "Ask your employee to triage, schedule, draft, or coordinate work..."
             }
-            footerLabel={meta?.deployment_format ?? "Hosted web slice"}
+            footerLabel={meta?.deployment_format ?? employeeAppConfig.deploymentFormat}
           />
         </section>
 

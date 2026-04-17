@@ -5,9 +5,11 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import component_library.data.context_assembler  # noqa: F401
@@ -693,8 +695,7 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
     app = FastAPI(title=f"Employee API — {employee_id}", version="1.0.0", lifespan=lifespan)
     app.state.runtime_service = service
 
-    @app.get("/health")
-    async def health(response: Response) -> dict[str, str]:
+    async def _health(response: Response) -> dict[str, str]:
         await service.initialize()
         if service.initialization_error:
             response.status_code = 503
@@ -705,6 +706,14 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
             }
         await service.ensure_conversation()
         return {"status": "ok", "employee_id": employee_id}
+
+    @app.get("/health")
+    async def health_legacy(response: Response) -> dict[str, str]:
+        return await _health(response)
+
+    @app.get("/api/v1/health")
+    async def health(response: Response) -> dict[str, str]:
+        return await _health(response)
 
     @app.get("/api/v1/meta")
     async def meta() -> dict[str, Any]:
@@ -885,6 +894,14 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
         except WebSocketDisconnect:
             return
 
+    static_dir = str(service.config.get("static_dir", "")).strip()
+    if static_dir:
+        static_path = Path(static_dir)
+        if not static_path.is_absolute():
+            static_path = Path.cwd() / static_path
+        if static_path.exists():
+            app.mount("/", StaticFiles(directory=static_path, html=True), name="employee-frontend")
+
     return app
 
 
@@ -959,6 +976,7 @@ def _normalize_runtime_config(employee_id: str, config: dict[str, Any]) -> dict[
         "timezone": config.get("timezone", "America/New_York"),
         "employee_database_url": config.get("employee_database_url", raw_manifest.get("employee_database_url", "")),
         "employee_db_auto_init": config.get("employee_db_auto_init", raw_manifest.get("employee_db_auto_init", True)),
+        "static_dir": config.get("static_dir", raw_manifest.get("static_dir", "")),
         "session_factory": config.get("session_factory"),
         "conversation_repository": config.get("conversation_repository"),
     }

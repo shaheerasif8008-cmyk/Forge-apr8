@@ -31,6 +31,9 @@ async def test_assembler_creates_build_directory(sample_requirements, sample_blu
         config = json.loads((build_dir / "config.yaml").read_text())
         assert config["employee_name"] == sample_blueprint.employee_name
         assert config["workflow"] == "legal_intake"
+        frontend_config = (build_dir / "portal" / "employee_app" / "app" / "config.ts").read_text()
+        assert str(sample_blueprint.id) in frontend_config
+        assert sample_blueprint.employee_name in frontend_config
         assert not any(path.is_symlink() for path in build_dir.rglob("*"))
     finally:
         if build_dir.exists():

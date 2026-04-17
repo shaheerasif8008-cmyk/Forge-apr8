@@ -1,9 +1,11 @@
 import "./globals.css";
 import type { Metadata } from "next";
 
+import { employeeAppConfig } from "./config";
+
 export const metadata: Metadata = {
-  title: "Forge Employee App",
-  description: "Arthur, the legal intake associate",
+  title: `${employeeAppConfig.employeeName} | Forge Employee`,
+  description: employeeAppConfig.employeeRole,
 };
 
 export default function RootLayout({

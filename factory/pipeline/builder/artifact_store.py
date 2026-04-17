@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from shutil import copy2
 from uuid import UUID
 
 ARTIFACT_ROOT = Path("/tmp/forge-artifacts")
@@ -21,3 +22,13 @@ async def store_container_tarball(image_tag: str, build_id: UUID) -> str:
         check=True,
     )
     return str(tarball_path)
+
+
+async def store_file(path: str | Path, build_id: UUID, *, artifact_type: str = "artifact") -> str:
+    """Copy an arbitrary build artifact into local artifact storage."""
+    source = Path(path)
+    artifact_dir = ARTIFACT_ROOT / str(build_id) / artifact_type
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    destination = artifact_dir / source.name
+    copy2(source, destination)
+    return str(destination)

@@ -1,0 +1,23 @@
+appId: com.cognisia.forge.${env.FORGE_EMPLOYEE_ID}
+productName: ${env.FORGE_EMPLOYEE_NAME}
+directories:
+  output: dist
+files:
+  - app/**
+  - components/**
+  - electron/**
+  - out/**
+  - package.json
+  - next.config.js
+  - tsconfig.json
+  - postcss.config.js
+  - tailwind.config.ts
+mac:
+  target:
+    - dmg
+win:
+  target:
+    - nsis
+linux:
+  target:
+    - AppImage

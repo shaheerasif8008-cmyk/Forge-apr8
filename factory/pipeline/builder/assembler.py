@@ -22,6 +22,15 @@ logger = structlog.get_logger(__name__)
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BUILD_ROOT = Path("/tmp/forge-builds")
 FRAMEWORK_FILES = ("__init__.py", "interfaces.py", "registry.py", "component_factory.py")
+DEFAULT_SIDEBAR_PANELS = (
+    "inbox",
+    "activity",
+    "documents",
+    "memory",
+    "settings",
+    "updates",
+    "metrics",
+)
 
 
 async def assemble(
@@ -43,6 +52,7 @@ async def assemble(
     shutil.copytree(REPO_ROOT / "employee_runtime", build_dir / "employee_runtime")
     (build_dir / "portal").mkdir(parents=True, exist_ok=True)
     shutil.copytree(REPO_ROOT / "portal" / "employee_app", build_dir / "portal" / "employee_app")
+    _write_employee_app_config(blueprint, requirements, build_dir)
     _copy_component_framework(build_dir / "component_library")
 
     copied_components: list[str] = []
@@ -59,6 +69,7 @@ async def assemble(
 
     generated_dir = build_dir / "generated"
     generated_dir.mkdir(exist_ok=True)
+    (generated_dir / "__init__.py").write_text("")
 
     config = await generate_config(blueprint, requirements, build_dir=str(build_dir), generated_files=[])
     config_path = build_dir / "config.yaml"
@@ -79,6 +90,13 @@ async def assemble(
             "copied_components": copied_components,
             "generated_dir": str(generated_dir),
             "workflow_id": blueprint.workflow_id,
+            "deployment_format": blueprint.deployment_spec.format,
+            "employee_id": str(blueprint.id),
+            "employee_name": blueprint.employee_name,
+            "employee_role": requirements.role_title or requirements.name,
+            "frontend_dir": str(build_dir / "portal" / "employee_app"),
+            "enabled_sidebar_panels": _enabled_sidebar_panels(blueprint),
+            "desktop_backend_url": blueprint.deployment_spec.hosted_base_url,
         }
     )
     build.logs.append(
@@ -118,3 +136,48 @@ def _copy_component(category: str, component_id: str, destination: Path) -> None
         schemas_src = category_src / "schemas.py"
         if schemas_src.exists():
             shutil.copy2(schemas_src, category_dest / "schemas.py")
+
+
+def _write_employee_app_config(
+    blueprint: EmployeeBlueprint,
+    requirements: EmployeeRequirements,
+    build_dir: Path,
+) -> None:
+    employee_app_dir = build_dir / "portal" / "employee_app"
+    config_path = employee_app_dir / "app" / "config.ts"
+    enabled_panels = _enabled_sidebar_panels(blueprint)
+    config_contents = (
+        "export type EmployeeAppConfig = {\n"
+        "  employeeId: string;\n"
+        "  employeeName: string;\n"
+        "  employeeRole: string;\n"
+        "  enabledSidebarPanels: string[];\n"
+        "  apiBaseUrl: string;\n"
+        "  wsBaseUrl: string;\n"
+        "  deploymentFormat: string;\n"
+        "};\n\n"
+        "export const employeeAppConfig: EmployeeAppConfig = {\n"
+        f"  employeeId: {json.dumps(str(blueprint.id))},\n"
+        f"  employeeName: {json.dumps(blueprint.employee_name)},\n"
+        f"  employeeRole: {json.dumps(requirements.role_title or requirements.name)},\n"
+        f"  enabledSidebarPanels: {json.dumps(enabled_panels)},\n"
+        "  apiBaseUrl: \"\",\n"
+        "  wsBaseUrl: \"\",\n"
+        f"  deploymentFormat: {json.dumps(blueprint.deployment_spec.format)},\n"
+        "};\n"
+    )
+    config_path.write_text(config_contents)
+
+
+def _enabled_sidebar_panels(blueprint: EmployeeBlueprint) -> list[str]:
+    component_ids = {component.component_id for component in blueprint.components}
+    panels = list(DEFAULT_SIDEBAR_PANELS)
+    if "working_memory" not in component_ids and "operational_memory" not in component_ids:
+        panels.remove("memory")
+    if "audit_system" not in component_ids:
+        panels.remove("activity")
+    if not any(component_id.endswith("_tool") for component_id in component_ids):
+        panels.remove("documents")
+    if "approval_manager" not in component_ids and "autonomy_manager" not in component_ids:
+        panels.remove("inbox")
+    return panels

@@ -67,6 +67,12 @@ async def start_pipeline(requirements: EmployeeRequirements, build: Build) -> Bu
             build = await generate(blueprint, build)
             await save_build(session, build)
             await session.commit()
+            if build.status == BuildStatus.FAILED:
+                build.completed_at = datetime.utcnow()
+                await save_build(session, build)
+                await session.commit()
+                logger.warning("pipeline_generation_failed", build_id=str(build.id))
+                return build
 
             build = await package(build)
             await save_build(session, build)
