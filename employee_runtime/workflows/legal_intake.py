@@ -55,13 +55,15 @@ def create_handlers(components: dict[str, Any]) -> dict[str, NodeHandler]:
         return state
 
     async def extract_information(state: EmployeeState) -> EmployeeState:
-        extraction = text_processor.extract(state["sanitization_result"]["sanitized_input"])
+        extraction = await text_processor.extract(state["sanitization_result"]["sanitized_input"])
         state["extracted_data"] = extraction.model_dump()
         await _log(state, "llm_called", {"node": "extract_information", "confidence": extraction.extraction_confidence})
         return state
 
     async def analyze_intake(state: EmployeeState) -> EmployeeState:
-        analysis = document_analyzer.analyze(AnalysisInput(**{"extraction": state["extracted_data"]}).extraction)
+        analysis = await document_analyzer.analyze(
+            AnalysisInput(**{"extraction": state["extracted_data"]}).extraction
+        )
         state["analysis"] = analysis.model_dump()
         state["qualification_decision"] = analysis.qualification_decision
         state["qualification_reasoning"] = analysis.qualification_reasoning
@@ -86,7 +88,7 @@ def create_handlers(components: dict[str, Any]) -> dict[str, NodeHandler]:
         return state
 
     async def generate_brief(state: EmployeeState) -> EmployeeState:
-        brief = draft_generator.generate(
+        brief = await draft_generator.generate(
             DraftInput.model_validate(
                 {
                     "extraction": state["extracted_data"],

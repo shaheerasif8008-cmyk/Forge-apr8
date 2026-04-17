@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import os
 from typing import Any
 
 from pydantic import BaseModel
 
 from component_library.interfaces import ComponentHealth, WorkCapability
+from component_library.models.litellm_router import TaskType
 from component_library.registry import register
 from component_library.work.schemas import (
     AnalysisInput,
@@ -21,23 +24,105 @@ class DocumentAnalyzer(WorkCapability):
     version = "1.0.0"
 
     async def initialize(self, config: dict[str, Any]) -> None:
+        self._config = config
         self._practice_areas = config.get(
             "practice_areas",
             ["personal injury", "employment", "commercial dispute", "real estate"],
         )
+        self._model_client = config.get("model_client")
+        self._fallback_mode = str(config.get("fallback_mode", "deterministic"))
 
     async def health_check(self) -> ComponentHealth:
-        return ComponentHealth(healthy=True)
+        detail = "llm_backed" if self._model_client is not None else "deterministic_fallback"
+        return ComponentHealth(healthy=True, detail=detail)
 
     def get_test_suite(self) -> list[str]:
         return ["tests/components/work/test_document_analyzer.py"]
 
     async def execute(self, input_data: BaseModel) -> BaseModel:
         if isinstance(input_data, AnalysisInput):
-            return self.analyze(input_data.extraction)
+            return await self.analyze(input_data.extraction)
         raise TypeError("DocumentAnalyzer expects AnalysisInput")
 
-    def analyze(self, extraction: LegalIntakeExtraction) -> DocumentAnalyzerOutput:
+    def set_model_client(self, model_client: Any) -> None:
+        self._model_client = model_client
+
+    async def analyze(self, extraction: LegalIntakeExtraction) -> DocumentAnalyzerOutput:
+        if self._can_use_model():
+            try:
+                return await self._analyze_with_model(extraction)
+            except Exception:
+                if self._fallback_mode != "deterministic":
+                    raise
+        return self._analyze_deterministic(extraction)
+
+    def _can_use_model(self) -> bool:
+        if self._model_client is None:
+            return False
+        if self._config.get("force_llm"):
+            return True
+        client_id = getattr(self._model_client, "component_id", "")
+        if client_id == "litellm_router":
+            return any(
+                os.getenv(name)
+                for name in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY")
+            )
+        if client_id == "anthropic_provider":
+            return bool(getattr(self._model_client, "_api_key", None) or os.getenv("ANTHROPIC_API_KEY"))
+        return True
+
+    async def _analyze_with_model(
+        self,
+        extraction: LegalIntakeExtraction,
+    ) -> DocumentAnalyzerOutput:
+        system_prompt = (
+            "You are a legal-intake qualification analyst. Reason only from the extracted intake facts provided. "
+            "Do not invent missing details. Choose qualification_decision from qualified, needs_review, or not_qualified. "
+            "Identify risk_flags, recommended_actions, a concise summary, and clear qualification_reasoning."
+        )
+        user_message = (
+            "Analyze this intake against the firm's practice areas and produce the structured qualification output.\n\n"
+            f"PRACTICE AREAS: {', '.join(self._practice_areas)}\n\n"
+            f"EXTRACTION JSON:\n{json.dumps(extraction.model_dump(mode='json'), indent=2)}"
+        )
+        result = await self._call_structured_model(system_prompt, user_message)
+        return result.model_copy(
+            update={
+                "summary": result.summary.strip(),
+                "key_findings": [item.strip() for item in result.key_findings if item.strip()],
+                "risk_flags": [item.strip() for item in result.risk_flags if item.strip()],
+                "recommended_actions": [item.strip() for item in result.recommended_actions if item.strip()],
+                "qualification_decision": result.qualification_decision.strip(),
+                "qualification_reasoning": result.qualification_reasoning.strip(),
+                "confidence": round(max(0.0, min(result.confidence, 1.0)), 2),
+            }
+        )
+
+    async def _call_structured_model(
+        self,
+        system_prompt: str,
+        user_message: str,
+    ) -> DocumentAnalyzerOutput:
+        if getattr(self._model_client, "component_id", "") == "litellm_router":
+            return await self._model_client.complete_structured(
+                TaskType.STRUCTURED,
+                system_prompt,
+                user_message,
+                DocumentAnalyzerOutput,
+            )
+        if hasattr(self._model_client, "complete_structured"):
+            return await self._model_client.complete_structured(
+                system_prompt,
+                user_message,
+                DocumentAnalyzerOutput,
+            )
+        return await self._model_client.structure(
+            DocumentAnalyzerOutput,
+            user_message,
+            system_prompt=system_prompt,
+        )
+
+    def _analyze_deterministic(self, extraction: LegalIntakeExtraction) -> DocumentAnalyzerOutput:
         risk_flags: list[str] = []
         recommended_actions: list[str] = []
         key_findings: list[str] = []

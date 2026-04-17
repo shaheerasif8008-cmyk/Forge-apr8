@@ -7,7 +7,14 @@ from factory.models.blueprint import SelectedComponent
 from factory.models.requirements import EmployeeArchetype, EmployeeRequirements
 
 LEGAL_BASELINE_COMPONENTS: tuple[tuple[str, str, dict[str, object]], ...] = (
-    ("models", "anthropic_provider", {"model": "claude-3-5-sonnet-20241022"}),
+    (
+        "models",
+        "litellm_router",
+        {
+            "primary_model": "openrouter/anthropic/claude-3.5-sonnet",
+            "fallback_model": "openrouter/anthropic/claude-3.5-haiku",
+        },
+    ),
     ("work", "text_processor", {}),
     ("work", "document_analyzer", {}),
     ("work", "draft_generator", {}),

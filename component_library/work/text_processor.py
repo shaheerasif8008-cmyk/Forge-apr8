@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 
 from pydantic import BaseModel
 
 from component_library.interfaces import ComponentHealth, WorkCapability
+from component_library.models.litellm_router import TaskType
 from component_library.registry import register
 from component_library.work.schemas import LegalIntakeExtraction, LegalIntakeInput
 
@@ -29,19 +31,102 @@ class TextProcessor(WorkCapability):
 
     async def initialize(self, config: dict[str, Any]) -> None:
         self._config = config
+        self._model_client = config.get("model_client")
+        self._fallback_mode = str(config.get("fallback_mode", "deterministic"))
 
     async def health_check(self) -> ComponentHealth:
-        return ComponentHealth(healthy=True)
+        detail = "llm_backed" if self._model_client is not None else "deterministic_fallback"
+        return ComponentHealth(healthy=True, detail=detail)
 
     def get_test_suite(self) -> list[str]:
         return ["tests/components/work/test_text_processor.py"]
 
     async def execute(self, input_data: BaseModel) -> BaseModel:
         if isinstance(input_data, LegalIntakeInput):
-            return self.extract(input_data.email_text)
+            return await self.extract(input_data.email_text)
         raise TypeError("TextProcessor expects LegalIntakeInput")
 
-    def extract(self, email_text: str) -> LegalIntakeExtraction:
+    def set_model_client(self, model_client: Any) -> None:
+        self._model_client = model_client
+
+    async def extract(self, email_text: str) -> LegalIntakeExtraction:
+        if self._can_use_model():
+            try:
+                return await self._extract_with_model(email_text)
+            except Exception:
+                if self._fallback_mode != "deterministic":
+                    raise
+        return self._extract_deterministic(email_text)
+
+    def _can_use_model(self) -> bool:
+        if self._model_client is None:
+            return False
+        if self._config.get("force_llm"):
+            return True
+        client_id = getattr(self._model_client, "component_id", "")
+        if client_id == "litellm_router":
+            return any(
+                os.getenv(name)
+                for name in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY")
+            )
+        if client_id == "anthropic_provider":
+            return bool(getattr(self._model_client, "_api_key", None) or os.getenv("ANTHROPIC_API_KEY"))
+        return True
+
+    async def _extract_with_model(self, email_text: str) -> LegalIntakeExtraction:
+        system_prompt = (
+            "You extract structured information from legal intake emails for a law-firm intake employee. "
+            "Return only facts present in the message. Preserve uncertainty. Leave unknown fields blank instead of guessing. "
+            "Keep key_facts concise, factual, and specific. Use urgency values normal, high, or urgent."
+        )
+        user_message = (
+            "Extract the following legal intake email into the schema.\n\n"
+            f"EMAIL:\n{email_text.strip()}"
+        )
+        result = await self._call_structured_model(system_prompt, user_message)
+        return result.model_copy(
+            update={
+                "client_name": result.client_name.strip(),
+                "client_email": result.client_email.strip(),
+                "client_phone": result.client_phone.strip(),
+                "matter_type": result.matter_type.strip(),
+                "date_of_incident": result.date_of_incident.strip(),
+                "opposing_party": result.opposing_party.strip(),
+                "estimated_value": result.estimated_value.strip(),
+                "referral_source": result.referral_source.strip(),
+                "raw_summary": result.raw_summary.strip(),
+                "urgency": result.urgency.strip() or "normal",
+                "key_facts": [fact.strip() for fact in result.key_facts if fact.strip()],
+                "potential_conflicts": [item.strip() for item in result.potential_conflicts if item.strip()],
+                "extraction_confidence": round(max(0.0, min(result.extraction_confidence, 1.0)), 2),
+            }
+        )
+
+    async def _call_structured_model(
+        self,
+        system_prompt: str,
+        user_message: str,
+    ) -> LegalIntakeExtraction:
+        if getattr(self._model_client, "component_id", "") == "litellm_router":
+            return await self._model_client.complete_structured(
+                TaskType.STRUCTURED,
+                system_prompt,
+                user_message,
+                LegalIntakeExtraction,
+            )
+        if hasattr(self._model_client, "complete_structured"):
+            return await self._model_client.complete_structured(
+                system_prompt,
+                user_message,
+                LegalIntakeExtraction,
+            )
+        return await self._model_client.structure(
+            LegalIntakeExtraction,
+            user_message,
+            system_prompt=system_prompt,
+        )
+
+    def _extract_deterministic(self, email_text: str) -> LegalIntakeExtraction:
         text = email_text.strip()
         lower = text.lower()
 

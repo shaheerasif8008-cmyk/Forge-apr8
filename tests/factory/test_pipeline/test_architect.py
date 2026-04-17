@@ -16,7 +16,7 @@ async def test_component_selector_always_includes_model(
 ) -> None:
     components = await select_components(sample_requirements)
     component_ids = {component.component_id for component in components}
-    assert "anthropic_provider" in component_ids
+    assert "litellm_router" in component_ids
     assert {
         "text_processor",
         "document_analyzer",

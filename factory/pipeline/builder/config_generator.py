@@ -43,6 +43,8 @@ async def generate_config(
         "org_id": str(blueprint.org_id),
         "employee_name": blueprint.employee_name,
         "workflow": blueprint.workflow_id,
+        "employee_database_url": "",
+        "employee_db_auto_init": True,
         "components": [
             {"id": component.component_id, "category": component.category, "config": component.config}
             for component in blueprint.components

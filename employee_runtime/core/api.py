@@ -7,13 +7,15 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 import component_library.data.context_assembler  # noqa: F401
 import component_library.data.operational_memory  # noqa: F401
 import component_library.data.org_context  # noqa: F401
 import component_library.data.working_memory  # noqa: F401
+import component_library.models.anthropic_provider  # noqa: F401
+import component_library.models.litellm_router  # noqa: F401
 import component_library.quality.audit_system  # noqa: F401
 import component_library.quality.autonomy_manager  # noqa: F401
 import component_library.quality.confidence_scorer  # noqa: F401
@@ -30,7 +32,13 @@ import component_library.work.scheduler_manager  # noqa: F401
 import component_library.work.text_processor  # noqa: F401
 import component_library.work.workflow_executor  # noqa: F401
 from component_library.component_factory import create_components
+from employee_runtime.core.conversation_repository import (
+    ConversationRepository,
+    InMemoryConversationRepository,
+    SqlAlchemyConversationRepository,
+)
 from employee_runtime.core.engine import EmployeeEngine
+from employee_runtime.core.runtime_db import initialize_runtime_database, normalize_org_uuid
 from employee_runtime.core.tool_broker import ToolBroker
 from employee_runtime.modules.behavior_manager import BehaviorManager
 from employee_runtime.modules.pulse_engine import DailyLoopRequest, PulseEngine
@@ -91,13 +99,19 @@ class EmployeeRuntimeService:
         self.tool_broker: ToolBroker | None = None
         self.pulse_engine: PulseEngine | None = None
         self.behavior_manager: BehaviorManager | None = None
+        self.conversation_repository: ConversationRepository | None = None
+        self._runtime_db_handle: Any | None = None
+        self._session_factory: Any | None = None
+        self._initialization_error = ""
         self.tasks: dict[str, dict[str, Any]] = {}
-        self.conversations: dict[str, dict[str, Any]] = {}
-        self.messages: dict[str, list[dict[str, Any]]] = {}
-        self.approvals: dict[str, dict[str, Any]] = {}
 
     async def initialize(self) -> None:
-        if self.engine is not None:
+        if self.engine is not None or self._initialization_error:
+            return
+        try:
+            await self._initialize_persistence()
+        except Exception as exc:
+            self._initialization_error = f"runtime_persistence_unavailable: {exc}"
             return
 
         component_ids = [component["id"] for component in self.config["components"]]
@@ -139,10 +153,56 @@ class EmployeeRuntimeService:
             behavior_manager=self.behavior_manager,
         )
 
+    async def _initialize_persistence(self) -> None:
+        if self.conversation_repository is not None:
+            return
+
+        provided_repository = self.config.get("conversation_repository")
+        if provided_repository is not None:
+            self.conversation_repository = provided_repository
+            return
+
+        session_factory = self.config.get("session_factory")
+        if session_factory is not None:
+            self.config["org_id"] = normalize_org_uuid(self.config["org_id"])
+            self._session_factory = session_factory
+            self.conversation_repository = SqlAlchemyConversationRepository(session_factory)
+            return
+
+        database_url = str(self.config.get("employee_database_url", "")).strip()
+        if database_url:
+            if not bool(self.config.get("employee_db_auto_init", True)):
+                raise RuntimeError("employee-local database auto init is disabled")
+            handle = await initialize_runtime_database(
+                database_url=database_url,
+                raw_org_id=str(self.config["org_id"]),
+                employee_id=self.employee_id,
+            )
+            self._runtime_db_handle = handle
+            self._session_factory = handle.session_factory
+            self.config["org_id"] = handle.org_uuid
+            self.conversation_repository = SqlAlchemyConversationRepository(handle.session_factory)
+            return
+
+        self.conversation_repository = InMemoryConversationRepository()
+
+    async def shutdown(self) -> None:
+        if self._runtime_db_handle is not None:
+            await self._runtime_db_handle.close()
+            self._runtime_db_handle = None
+
+    @property
+    def initialization_error(self) -> str:
+        return self._initialization_error
+
     def _component_config(self) -> dict[str, dict[str, Any]]:
         component_config = {component["id"]: dict(component.get("config", {})) for component in self.config["components"]}
         component_config.setdefault("operational_memory", {}).update(
-            {"org_id": self.config["org_id"], "employee_id": self.employee_id}
+            {
+                "org_id": self.config["org_id"],
+                "employee_id": self.employee_id,
+                "session_factory": self._session_factory,
+            }
         )
         component_config.setdefault("working_memory", {}).update(
             {
@@ -153,7 +213,10 @@ class EmployeeRuntimeService:
         )
         component_config.setdefault("context_assembler", {}).update(
             {
+                "session_factory": self._session_factory,
                 "operational_memory": None,
+                "conversation_repository": self.conversation_repository,
+                "employee_id": self.employee_id,
                 "system_identity": self.config["identity_layers"]["layer_2_role_definition"],
                 "identity_layers": self.config["identity_layers"],
             }
@@ -171,6 +234,7 @@ class EmployeeRuntimeService:
         component_config.setdefault("draft_generator", {}).update(
             {"default_attorney": self.config.get("default_attorney", "Forge Review")}
         )
+        component_config.setdefault("audit_system", {}).update({"session_factory": self._session_factory})
         component_config.setdefault("communication_manager", {}).update(
             {
                 "signature": self.config["employee_name"],
@@ -191,14 +255,13 @@ class EmployeeRuntimeService:
 
     async def ensure_conversation(self, conversation_id: str = "") -> str:
         conv_id = conversation_id or self._default_conversation_id()
-        if conv_id not in self.conversations:
-            self.conversations[conv_id] = {
-                "id": conv_id,
-                "employee_id": self.employee_id,
-                "org_id": str(self.config["org_id"]),
-                "created_at": datetime.now(UTC).isoformat(),
-            }
-            self.messages[conv_id] = []
+        if self.conversation_repository is None:
+            raise RuntimeError("Conversation repository is not initialized.")
+        await self.conversation_repository.ensure_conversation(
+            conv_id,
+            self.employee_id,
+            str(self.config["org_id"]),
+        )
         return conv_id
 
     async def add_message(
@@ -209,21 +272,22 @@ class EmployeeRuntimeService:
         message_type: str = "text",
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        message = {
-            "id": f"{conversation_id}:{len(self.messages[conversation_id]) + 1}",
-            "conversation_id": conversation_id,
-            "role": role,
-            "content": content,
-            "message_type": message_type,
-            "metadata": metadata or {},
-            "created_at": datetime.now(UTC).isoformat(),
-        }
-        self.messages[conversation_id].append(message)
-        return message
+        if self.conversation_repository is None:
+            raise RuntimeError("Conversation repository is not initialized.")
+        return await self.conversation_repository.add_message(
+            conversation_id,
+            self.employee_id,
+            str(self.config["org_id"]),
+            role,
+            content,
+            message_type,
+            metadata or {},
+        )
 
     async def history(self, conversation_id: str) -> list[dict[str, Any]]:
         conv_id = await self.ensure_conversation(conversation_id)
-        history = list(self.messages[conv_id])
+        assert self.conversation_repository is not None
+        history = await self.conversation_repository.history(conv_id, self.employee_id)
         if not history:
             history.append(await self.add_message(conv_id, "assistant", self.welcome_message(), "text", {"first_run": True}))
         return history
@@ -256,7 +320,7 @@ class EmployeeRuntimeService:
 
         summary = self._result_summary(result)
         await self.add_message(conv_id, "assistant", summary, "status_update", {"task_id": task_id})
-        approval_message = await self.add_message(
+        await self.add_message(
             conv_id,
             "assistant",
             summary,
@@ -268,7 +332,6 @@ class EmployeeRuntimeService:
                 "decision": "",
             },
         )
-        self.approvals[approval_message["id"]] = approval_message
         return result
 
     def _result_summary(self, result: dict[str, Any]) -> str:
@@ -421,15 +484,24 @@ class EmployeeRuntimeService:
         }
 
     async def list_approvals(self) -> list[dict[str, Any]]:
-        return [approval for approval in self.approvals.values() if approval["metadata"].get("status") == "pending"]
+        if self.conversation_repository is None:
+            return []
+        return await self.conversation_repository.list_pending_approvals(self.employee_id)
 
     async def decide_approval(self, message_id: str, decision: str, note: str) -> dict[str, Any]:
-        if message_id not in self.approvals:
+        approvals = await self.list_approvals()
+        approval = next((item for item in approvals if item["id"] == message_id), None)
+        if approval is None or self.conversation_repository is None:
             raise KeyError(message_id)
-        approval = self.approvals[message_id]
-        approval["metadata"]["status"] = decision
-        approval["metadata"]["decision"] = decision
-        approval["metadata"]["note"] = note
+        metadata = dict(approval.get("metadata", {}))
+        metadata["status"] = decision
+        metadata["decision"] = decision
+        metadata["note"] = note
+        approval = await self.conversation_repository.update_message_metadata(
+            message_id,
+            self.employee_id,
+            metadata,
+        )
         if "audit_system" in self.components:
             await self.components["audit_system"].log_event(
                 employee_id=self.employee_id,
@@ -583,6 +655,7 @@ class EmployeeRuntimeService:
             DailyLoopRequest(
                 conversation_id=conv_id,
                 max_items=request.max_items,
+                current_time=request.current_time,
             )
         )
         return report.model_dump(mode="json")
@@ -605,19 +678,32 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
 
     async def ensure_ready() -> None:
         await service.initialize()
+        if service.initialization_error:
+            raise HTTPException(status_code=503, detail=service.initialization_error)
         await service.ensure_conversation()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        await ensure_ready()
-        yield
+        await service.initialize()
+        try:
+            yield
+        finally:
+            await service.shutdown()
 
     app = FastAPI(title=f"Employee API — {employee_id}", version="1.0.0", lifespan=lifespan)
     app.state.runtime_service = service
 
     @app.get("/health")
-    async def health() -> dict[str, str]:
-        await ensure_ready()
+    async def health(response: Response) -> dict[str, str]:
+        await service.initialize()
+        if service.initialization_error:
+            response.status_code = 503
+            return {
+                "status": "degraded",
+                "employee_id": employee_id,
+                "detail": service.initialization_error,
+            }
+        await service.ensure_conversation()
         return {"status": "ok", "employee_id": employee_id}
 
     @app.get("/api/v1/meta")
@@ -786,14 +872,13 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
                         service.tasks[task_id] = state
                         card = service._result_card(state)
                         summary = service._result_summary(state)
-                        approval_message = await service.add_message(
+                        await service.add_message(
                             conversation_id,
                             "assistant",
                             summary,
                             "approval_request",
                             {"task_id": task_id, "status": "pending", "brief": card},
                         )
-                        service.approvals[approval_message["id"]] = approval_message
                         for token in summary.split():
                             await websocket.send_json({"type": "token", "content": f"{token} "})
                         await websocket.send_json({"type": "complete", "message_type": "brief_card", "data": card})
@@ -809,20 +894,8 @@ def _normalize_runtime_config(employee_id: str, config: dict[str, Any]) -> dict[
     role_title = str(raw_manifest.get("role_title", config.get("employee_name", "Forge Employee")))
     employee_name = str(raw_manifest.get("employee_name", config.get("employee_name", employee_id)))
 
-    components = raw_manifest.get("components") or [
-        {"id": "text_processor", "category": "work", "config": {}},
-        {"id": "document_analyzer", "category": "work", "config": {}},
-        {"id": "draft_generator", "category": "work", "config": {}},
-        {"id": "email_tool", "category": "tools", "config": {}},
-        {"id": "operational_memory", "category": "data", "config": {}},
-        {"id": "working_memory", "category": "data", "config": {}},
-        {"id": "context_assembler", "category": "data", "config": {}},
-        {"id": "org_context", "category": "data", "config": {}},
-        {"id": "confidence_scorer", "category": "quality", "config": {}},
-        {"id": "audit_system", "category": "quality", "config": {}},
-        {"id": "input_protection", "category": "quality", "config": {}},
-        {"id": "verification_layer", "category": "quality", "config": {}},
-    ]
+    raw_components = raw_manifest.get("components") or _default_components_for_workflow(workflow)
+    components = [_normalize_component_descriptor(component) for component in raw_components]
     tool_permissions = list(raw_manifest.get("tool_permissions") or [component["id"] for component in components if str(component["id"]).endswith("_tool")])
     capabilities = list(raw_manifest.get("ui", {}).get("capabilities") or config.get("primary_responsibilities", []))
     identity_layers = raw_manifest.get("identity_layers") or {
@@ -884,6 +957,61 @@ def _normalize_runtime_config(employee_id: str, config: dict[str, Any]) -> dict[
         "message_fixtures": config.get("message_fixtures", []),
         "crm_fixtures": config.get("crm_fixtures", {}),
         "timezone": config.get("timezone", "America/New_York"),
+        "employee_database_url": config.get("employee_database_url", raw_manifest.get("employee_database_url", "")),
+        "employee_db_auto_init": config.get("employee_db_auto_init", raw_manifest.get("employee_db_auto_init", True)),
+        "session_factory": config.get("session_factory"),
+        "conversation_repository": config.get("conversation_repository"),
+    }
+
+
+def _default_components_for_workflow(workflow: str) -> list[dict[str, Any]]:
+    if workflow == "legal_intake":
+        return [
+            {
+                "id": "litellm_router",
+                "category": "models",
+                "config": {
+                    "primary_model": "openrouter/anthropic/claude-3.5-sonnet",
+                    "fallback_model": "openrouter/anthropic/claude-3.5-haiku",
+                },
+            },
+            {"id": "text_processor", "category": "work", "config": {}},
+            {"id": "document_analyzer", "category": "work", "config": {}},
+            {"id": "draft_generator", "category": "work", "config": {}},
+            {"id": "email_tool", "category": "tools", "config": {}},
+            {"id": "operational_memory", "category": "data", "config": {}},
+            {"id": "working_memory", "category": "data", "config": {}},
+            {"id": "context_assembler", "category": "data", "config": {}},
+            {"id": "org_context", "category": "data", "config": {}},
+            {"id": "confidence_scorer", "category": "quality", "config": {}},
+            {"id": "audit_system", "category": "quality", "config": {}},
+            {"id": "input_protection", "category": "quality", "config": {}},
+            {"id": "verification_layer", "category": "quality", "config": {}},
+        ]
+    return [
+        {"id": "workflow_executor", "category": "work", "config": {}},
+        {"id": "communication_manager", "category": "work", "config": {}},
+        {"id": "scheduler_manager", "category": "work", "config": {}},
+        {"id": "email_tool", "category": "tools", "config": {}},
+        {"id": "calendar_tool", "category": "tools", "config": {}},
+        {"id": "messaging_tool", "category": "tools", "config": {}},
+        {"id": "crm_tool", "category": "tools", "config": {}},
+        {"id": "operational_memory", "category": "data", "config": {}},
+        {"id": "working_memory", "category": "data", "config": {}},
+        {"id": "context_assembler", "category": "data", "config": {}},
+        {"id": "org_context", "category": "data", "config": {}},
+        {"id": "audit_system", "category": "quality", "config": {}},
+        {"id": "input_protection", "category": "quality", "config": {}},
+    ]
+
+
+def _normalize_component_descriptor(component: Any) -> dict[str, Any]:
+    if not isinstance(component, dict):
+        raise TypeError("Component descriptor must be a mapping.")
+    return {
+        "id": str(component.get("id", component.get("component_id", ""))),
+        "category": str(component.get("category", "")),
+        "config": dict(component.get("config", {})),
     }
 
 

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from component_library.interfaces import ComponentHealth, DataSource
 from component_library.registry import register
+from employee_runtime.core.conversation_repository import ConversationRepository
 from factory.models.orm import MessageRow
 
 
@@ -20,6 +21,8 @@ class ContextAssembler(DataSource):
     async def initialize(self, config: dict[str, Any]) -> None:
         self._session_factory: async_sessionmaker[AsyncSession] | None = config.get("session_factory")
         self._operational_memory = config.get("operational_memory")
+        self._conversation_repository: ConversationRepository | None = config.get("conversation_repository")
+        self._employee_id = str(config.get("employee_id", ""))
         self._system_identity = config.get("system_identity", "")
         self._identity_layers = config.get("identity_layers", {})
         self._conversation_cache: dict[str, list[str]] = {}
@@ -79,6 +82,9 @@ class ContextAssembler(DataSource):
     async def _conversation_history(self, conversation_id: str) -> str:
         if not conversation_id:
             return ""
+        if self._conversation_repository is not None and self._employee_id:
+            messages = await self._conversation_repository.history(conversation_id, self._employee_id)
+            return "\n".join(f"{row['role']}: {row['content']}" for row in messages[-12:])
         if self._session_factory is None:
             return "\n".join(self._conversation_cache.get(conversation_id, [])[-12:])
         async with self._session_factory() as session:
