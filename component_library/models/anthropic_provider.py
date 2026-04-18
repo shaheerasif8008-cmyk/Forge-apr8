@@ -118,6 +118,27 @@ class AnthropicProvider(BaseComponent):
         Raises:
             RuntimeError: On non-retryable API errors.
         """
+        content, _usage = await self.complete_with_usage(
+            messages,
+            user_message,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system=system,
+            system_prompt=system_prompt,
+        )
+        return content
+
+    async def complete_with_usage(
+        self,
+        messages: list[dict[str, str]] | str,
+        user_message: str | None = None,
+        *,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        system: str | None = None,
+        system_prompt: str | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        """Free-form completion plus normalized token-usage metadata."""
         full_messages = self._coerce_messages(messages, user_message, system_prompt or system)
         extra = self._call_kwargs(max_tokens, temperature)
         generation = get_langfuse_client().generation(
@@ -140,13 +161,13 @@ class AnthropicProvider(BaseComponent):
                 usage=usage,
                 metadata={"latency_ms": latency_ms},
             )
-        content = response.choices[0].message.content or ""
+
         self._log_call(
             mode="complete",
             latency_ms=latency_ms,
-            usage=getattr(response, "usage", None),
+            usage=usage,
         )
-        return content
+        return content, usage
 
     async def structure(
         self,

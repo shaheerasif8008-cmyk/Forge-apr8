@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import re
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+import factory.pipeline.evaluator.deepeval_adapter as deepeval_adapter
 from factory.pipeline.evaluator.behavioral_tests import run_behavioral_tests
 from factory.pipeline.evaluator.functional_tests import run_functional_tests
 from factory.pipeline.evaluator.hallucination_tests import run_hallucination_tests
@@ -106,6 +108,58 @@ def _extract_email(text: str) -> str:
 def _extract_phone(text: str) -> str:
     match = re.search(r"(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", text)
     return match.group(0) if match else ""
+
+
+def test_metrics_use_deepeval_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeLLMTestCase:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+
+    class _FakeAnswerMetric:
+        def __init__(self, *, model: str) -> None:
+            captured["model"] = model
+
+        def measure(self, test_case: _FakeLLMTestCase) -> None:
+            captured["test_case"] = test_case
+            self.score = 0.84
+            self.success = True
+            self.reason = "relevant"
+
+    monkeypatch.setattr(deepeval_adapter, "DEEPEVAL_AVAILABLE", True)
+    monkeypatch.setattr(deepeval_adapter, "AnswerRelevancyMetric", _FakeAnswerMetric)
+    monkeypatch.setattr(deepeval_adapter, "LLMTestCase", _FakeLLMTestCase)
+    monkeypatch.setattr(
+        deepeval_adapter,
+        "get_settings",
+        lambda: SimpleNamespace(llm_safety_model="judge-model", generator_model="generator-model"),
+    )
+
+    result = deepeval_adapter.answer_relevancy_metric(
+        {"brief": {"analysis": {"qualification_decision": "qualified"}}},
+        "qualified",
+    )
+
+    assert result.passed is True
+    assert 0.0 <= result.score <= 1.0
+    assert captured["model"] == "judge-model"
+    assert isinstance(captured["test_case"], _FakeLLMTestCase)
+
+
+def test_metrics_fall_back_when_deepeval_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(deepeval_adapter, "DEEPEVAL_AVAILABLE", False)
+    monkeypatch.setattr(deepeval_adapter, "AnswerRelevancyMetric", None)
+    monkeypatch.setattr(deepeval_adapter, "LLMTestCase", None)
+
+    result = deepeval_adapter.answer_relevancy_metric(
+        {"brief": {"analysis": {"qualification_decision": "qualified"}}},
+        "qualified",
+    )
+
+    assert result.as_dict().keys() == {"name", "score", "passed", "detail"}
+    assert 0.0 <= result.score <= 1.0
+    assert result.passed is True
 
 
 @pytest.mark.anyio

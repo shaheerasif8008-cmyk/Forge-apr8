@@ -22,6 +22,13 @@ logger = structlog.get_logger(__name__)
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAX_LOG_TEXT = 4000
+MODEL_COST_PER_TOKEN_USD = {
+    "anthropic/claude-3-5-sonnet-20241022": {"input": 0.000003, "output": 0.000015},
+    "anthropic/claude-3-5-haiku-20241022": {"input": 0.0000008, "output": 0.000004},
+    "openrouter/anthropic/claude-3.5-sonnet": {"input": 0.000003, "output": 0.000015},
+    "openrouter/openai/gpt-4o": {"input": 0.0000025, "output": 0.00001},
+}
+DEFAULT_MODEL_RATE = MODEL_COST_PER_TOKEN_USD["anthropic/claude-3-5-sonnet-20241022"]
 
 
 @dataclass(slots=True)
@@ -186,7 +193,7 @@ async def _call_model(
     prompt: str,
     model: str,
 ) -> ModelCallResult:
-    content = await client.complete(
+    content, usage = await client.complete_with_usage(
         [{"role": "user", "content": prompt}],
         max_tokens=4096,
         temperature=0.2,
@@ -195,10 +202,22 @@ async def _call_model(
             f"Use the configured model {model}."
         ),
     )
-    input_tokens = max(1, len(prompt) // 4)
-    output_tokens = max(1, len(content) // 4)
-    estimated_cost_usd = round((input_tokens * 0.000003) + (output_tokens * 0.000015), 6)
+    input_tokens = int(usage.get("prompt_tokens", 0) or 0)
+    output_tokens = int(usage.get("completion_tokens", 0) or 0)
+    rates = _model_cost_for(model)
+    estimated_cost_usd = round(
+        (input_tokens * rates["input"]) + (output_tokens * rates["output"]),
+        6,
+    )
     return ModelCallResult(content=content, cost_usd=estimated_cost_usd, model=model)
+
+
+def _model_cost_for(model: str) -> dict[str, float]:
+    rates = MODEL_COST_PER_TOKEN_USD.get(model)
+    if rates is not None:
+        return rates
+    logger.warning("generator_unknown_model_cost", model=model, fallback_model="anthropic/claude-3-5-sonnet-20241022")
+    return DEFAULT_MODEL_RATE
 
 
 def _render_prompt(template_name: str, **values: str) -> str:

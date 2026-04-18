@@ -285,6 +285,40 @@ class LitellmRouter(BaseComponent):
         )
         return result
 
+    async def embed(self, text: str) -> list[float]:
+        """Return a single embedding vector through litellm's async embedding API."""
+        model, _ = self._resolve(TaskType.EMBEDDING, 0.0)
+        generation = get_langfuse_client().generation(
+            "litellm_router.embed",
+            input=text,
+            metadata={"task_type": TaskType.EMBEDDING.value, "mode": "embedding"},
+            model=model,
+        )
+        with generation:
+            t0 = time.monotonic()
+            response = await litellm.aembedding(
+                model=model,
+                input=text,
+                timeout=self._timeout,
+            )
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            vector = self._extract_embedding(response)
+            generation.end(
+                output={"dimensions": len(vector)},
+                usage=self._usage_dict(getattr(response, "usage", None)),
+                metadata={"latency_ms": latency_ms},
+            )
+
+        self._record(
+            task_type=TaskType.EMBEDDING,
+            model=model,
+            fallback_used=False,
+            latency_ms=latency_ms,
+            usage=getattr(response, "usage", None),
+            mode="embedding",
+        )
+        return vector
+
     async def complete_structured(
         self,
         task_type: TaskType,
@@ -503,3 +537,18 @@ class LitellmRouter(BaseComponent):
             "completion_tokens": getattr(usage, "completion_tokens", 0),
             "total_tokens": getattr(usage, "total_tokens", 0),
         }
+
+    def _extract_embedding(self, response: Any) -> list[float]:
+        data = getattr(response, "data", None)
+        if data is None and isinstance(response, dict):
+            data = response.get("data")
+        if not data:
+            raise RuntimeError("litellm embedding response did not include any vectors")
+
+        first = data[0]
+        embedding = getattr(first, "embedding", None)
+        if embedding is None and isinstance(first, dict):
+            embedding = first.get("embedding")
+        if embedding is None:
+            raise RuntimeError("litellm embedding response missing embedding payload")
+        return [float(value) for value in embedding]

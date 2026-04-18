@@ -26,6 +26,11 @@ class _MockRouter:
         )
 
 
+def _embed_stub(text: str) -> list[float]:
+    value = 1.0 if "retention" in text.lower() else 0.2
+    return [value] * 1536
+
+
 @pytest.mark.anyio
 async def test_research_engine_happy_path() -> None:
     search = SearchTool()
@@ -45,7 +50,7 @@ async def test_research_engine_happy_path() -> None:
     await docs.initialize({})
 
     kb = KnowledgeBase()
-    await kb.initialize({"tenant_id": "tenant-a"})
+    await kb.initialize({"tenant_id": "tenant-a", "embedder": _embed_stub})
     await kb.ingest("doc-1", chunks=["The handbook says retention is required for 90 days."])
 
     engine = ResearchEngine()
