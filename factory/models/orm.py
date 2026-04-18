@@ -11,6 +11,8 @@ Table mapping:
   conversations        ← employee runtime conversation roots
   messages             ← employee runtime messages and approval records
   audit_events         ← append-only factory/runtime audit trail (hash-chained)
+  reasoning_records    ← explainability records for task/node decisions
+  knowledge_chunks     ← tenant-scoped document chunks and embeddings
 
 JSONB columns are used for any field that maps to a list[...] or dict[...] in
 the Pydantic layer so we avoid row-per-item join tables at this stage.
@@ -25,6 +27,7 @@ import json
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -328,6 +331,7 @@ class DeploymentRow(Base):
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
     access_url: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
     infrastructure: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    integrations: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     health_last_checked: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -454,6 +458,75 @@ class MessageRow(Base):
     )
 
     __table_args__ = (Index("idx_messages_conv", "conversation_id", "created_at"),)
+
+
+# ── reasoning_records ────────────────────────────────────────────────────────
+
+
+class ReasoningRecordRow(Base):
+    """UI-facing reasoning records captured per task/node decision."""
+
+    __tablename__ = "reasoning_records"
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    org_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("client_orgs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    employee_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    node_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    decision: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    rationale: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    inputs_considered: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    alternatives: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    evidence: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    modules_invoked: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    token_cost: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_reasoning_records_org_id", "org_id"),
+        Index("ix_reasoning_records_employee_id", "employee_id"),
+        Index("ix_reasoning_records_task_id", "task_id"),
+        Index("ix_reasoning_records_node_id", "node_id"),
+        Index("uq_reasoning_records_task_node", "task_id", "node_id", unique=True),
+    )
+
+
+class KnowledgeChunkRow(Base):
+    """Tenant-scoped chunk storage used by the knowledge base."""
+
+    __tablename__ = "knowledge_chunks"
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    tenant_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), nullable=False
+    )
+    document_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), nullable=False
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
+    chunk_metadata: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_knowledge_chunks_tenant_id", "tenant_id"),
+        Index("ix_knowledge_chunks_tenant_document", "tenant_id", "document_id"),
+    )
 
 
 # ── audit_events ──────────────────────────────────────────────────────────────

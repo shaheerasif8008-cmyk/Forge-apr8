@@ -2,51 +2,59 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 
-from tests.fixtures.sample_emails import CLEAR_QUALIFIED, CLEAR_UNQUALIFIED
+from factory.pipeline.evaluator.deepeval_adapter import (
+    answer_relevancy_metric,
+    faithfulness_metric,
+    json_schema_metric,
+    load_cases,
+)
+
+DATASET_PATH = Path(__file__).resolve().parent / "datasets" / "legal_intake.jsonl"
 
 
 async def run_functional_tests(base_url: str) -> dict[str, object]:
-    """Submit representative intake tasks and verify expected outputs."""
-    tests_run = 0
+    """Submit representative intake tasks and score them with metric-style checks."""
+    cases = load_cases(DATASET_PATH)
     failures: list[str] = []
+    case_results: list[dict[str, object]] = []
+    tests_run = 0
 
     async with httpx.AsyncClient(base_url=base_url, timeout=20.0) as client:
-        history = await client.get("/api/v1/chat/history")
-        tests_run += 1
-        if history.status_code != 200:
-            failures.append("Chat history endpoint unavailable")
+        for case in cases:
+            response = await client.post(
+                "/api/v1/tasks",
+                json={"input": case["input"], "context": {"input_type": "email"}},
+            )
+            tests_run += 1
+            if response.status_code != 200:
+                failures.append(f"{case['id']}: task failed with status {response.status_code}")
+                continue
 
-        qualified = await client.post(
-            "/api/v1/tasks",
-            json={"input": CLEAR_QUALIFIED, "context": {"input_type": "email"}, "conversation_id": "default"},
-        )
-        tests_run += 1
-        if qualified.status_code != 200:
-            failures.append("Qualified intake task failed")
-        else:
-            payload = qualified.json()
-            brief = payload.get("brief", {})
-            analysis = brief.get("analysis", {})
-            for field in ("client_info", "analysis", "confidence_score"):
-                tests_run += 1
-                if field not in brief:
-                    failures.append(f"Brief missing field: {field}")
-            if analysis.get("qualification_decision") != "qualified":
-                failures.append("Qualified intake did not return qualified decision")
+            payload = response.json()
+            metrics = [
+                json_schema_metric(payload),
+                answer_relevancy_metric(payload, case["expected_decision"]),
+                faithfulness_metric(payload, case),
+            ]
+            tests_run += len(metrics)
+            case_passed = all(metric.passed for metric in metrics)
+            if not case_passed:
+                failures.append(f"{case['id']}: one or more metrics failed")
+            case_results.append(
+                {
+                    "id": case["id"],
+                    "passed": case_passed,
+                    "metrics": [metric.as_dict() for metric in metrics],
+                }
+            )
 
-        unqualified = await client.post(
-            "/api/v1/tasks",
-            json={"input": CLEAR_UNQUALIFIED, "context": {"input_type": "email"}},
-        )
-        tests_run += 1
-        if unqualified.status_code != 200:
-            failures.append("Unqualified intake task failed")
-        else:
-            brief = unqualified.json().get("brief", {})
-            analysis = brief.get("analysis", {})
-            if analysis.get("qualification_decision") != "not_qualified":
-                failures.append("Unqualified intake did not return not_qualified decision")
-
-    return {"passed": len(failures) == 0, "tests": tests_run, "failures": failures}
+    return {
+        "passed": len(failures) == 0,
+        "tests": tests_run,
+        "failures": failures,
+        "cases": case_results,
+    }

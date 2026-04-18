@@ -8,6 +8,7 @@ from factory.models.requirements import EmployeeRequirements, RiskTier
 from factory.pipeline.architect.blueprint_builder import assemble_blueprint
 from factory.pipeline.architect.component_selector import select_components
 from factory.pipeline.architect.gap_analyzer import identify_gaps
+from factory.pipeline.architect.workflow_designer import design_workflow
 
 
 @pytest.mark.anyio
@@ -59,7 +60,9 @@ async def test_gap_analyzer_flags_unknown_tools(
 async def test_blueprint_assembly(sample_requirements: EmployeeRequirements) -> None:
     components = await select_components(sample_requirements)
     gaps = await identify_gaps(sample_requirements, components)
-    blueprint = await assemble_blueprint(sample_requirements, components, gaps)
+    workflow_graph = await design_workflow(sample_requirements, components, gaps)
+    blueprint = await assemble_blueprint(sample_requirements, components, gaps, workflow_graph)
     assert blueprint.employee_name == sample_requirements.name
     assert blueprint.org_id == sample_requirements.org_id
     assert len(blueprint.components) > 0
+    assert blueprint.workflow_graph is not None

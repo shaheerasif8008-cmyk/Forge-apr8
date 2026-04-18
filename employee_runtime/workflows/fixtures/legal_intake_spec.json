@@ -1,0 +1,27 @@
+{
+  "nodes": [
+    {"node_id": "sanitize_input", "component_id": "input_protection", "custom_spec_id": null, "config": {"adapter": "sanitize_input"}},
+    {"node_id": "extract_information", "component_id": "text_processor", "custom_spec_id": null, "config": {"adapter": "legal_extract"}},
+    {"node_id": "analyze_intake", "component_id": "document_analyzer", "custom_spec_id": null, "config": {"adapter": "legal_analyze"}},
+    {"node_id": "score_confidence", "component_id": "confidence_scorer", "custom_spec_id": null, "config": {"adapter": "legal_confidence"}},
+    {"node_id": "flag_for_review", "component_id": null, "custom_spec_id": "builtin_flag_for_review", "config": {"adapter": "builtin_flag_for_review"}},
+    {"node_id": "generate_brief", "component_id": "draft_generator", "custom_spec_id": null, "config": {"adapter": "legal_generate_brief"}},
+    {"node_id": "escalate", "component_id": null, "custom_spec_id": "builtin_escalate", "config": {"adapter": "builtin_escalate"}},
+    {"node_id": "deliver", "component_id": null, "custom_spec_id": "builtin_deliver", "config": {"adapter": "builtin_deliver"}},
+    {"node_id": "log_completion", "component_id": null, "custom_spec_id": "builtin_log_completion", "config": {"adapter": "builtin_log_completion"}}
+  ],
+  "edges": [
+    {"from_node": "sanitize_input", "to_node": "extract_information", "condition": null},
+    {"from_node": "extract_information", "to_node": "analyze_intake", "condition": null},
+    {"from_node": "analyze_intake", "to_node": "score_confidence", "condition": null},
+    {"from_node": "score_confidence", "to_node": "generate_brief", "condition": "confidence_report.overall_score >= 0.85"},
+    {"from_node": "score_confidence", "to_node": "flag_for_review", "condition": "confidence_report.overall_score >= 0.4"},
+    {"from_node": "score_confidence", "to_node": "escalate", "condition": null},
+    {"from_node": "flag_for_review", "to_node": "generate_brief", "condition": null},
+    {"from_node": "generate_brief", "to_node": "deliver", "condition": null},
+    {"from_node": "escalate", "to_node": "deliver", "condition": null},
+    {"from_node": "deliver", "to_node": "log_completion", "condition": null}
+  ],
+  "entry": "sanitize_input",
+  "terminals": ["log_completion"]
+}

@@ -14,6 +14,7 @@ from factory.pipeline.evaluator.container_runner import (
 )
 from factory.pipeline.evaluator.executive_assistant_tests import run_executive_assistant_tests
 from factory.pipeline.evaluator.functional_tests import run_functional_tests
+from factory.pipeline.evaluator.hallucination_tests import run_hallucination_tests
 from factory.pipeline.evaluator.security_tests import run_security_tests
 
 logger = structlog.get_logger(__name__)
@@ -56,6 +57,7 @@ async def evaluate(build: Build) -> Build:
         suites = {
             "security": await run_security_tests(base_url),
             "behavioral": await run_behavioral_tests(base_url),
+            "hallucination": await run_hallucination_tests(base_url),
         }
         if workflow_id == "executive_assistant":
             suites["functional"] = await run_executive_assistant_tests(base_url)

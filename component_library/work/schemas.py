@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LegalIntakeInput(BaseModel):
@@ -81,6 +82,7 @@ class InputProtectionResult(BaseModel):
     is_safe: bool
     risk_score: float
     flags: list[str] = Field(default_factory=list)
+    violations: list[dict[str, Any]] = Field(default_factory=list)
     sanitized_input: str
 
 
@@ -132,3 +134,73 @@ class ExecutiveAssistantResult(BaseModel):
     novel_options: list[dict[str, str]] = Field(default_factory=list)
     recommended_option: str = ""
     needs_guidance: bool = False
+
+
+class ResearchRequest(BaseModel):
+    question: str
+    sources: list[str] = Field(default_factory=lambda: ["web"])
+    documents: list[str] = Field(default_factory=list)
+    max_results: int = 5
+    metadata_filters: dict[str, str] = Field(default_factory=dict)
+    notes: str = ""
+
+
+class Finding(BaseModel):
+    statement: str
+    rationale: str = ""
+    citations: list[str] = Field(default_factory=list)
+    source_type: str = ""
+    confidence: float = 0.0
+
+
+class ResearchReport(BaseModel):
+    question: str
+    sources_used: list[str] = Field(default_factory=list)
+    key_findings: list[Finding] = Field(default_factory=list)
+    contradictions: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
+
+
+class DataAnalysisRequest(BaseModel):
+    csv_data: str | None = None
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    sql_query: str | None = None
+    question: str = ""
+    max_anomalies: int = 3
+
+
+class DataColumnProfile(BaseModel):
+    name: str
+    inferred_type: str
+    null_count: int = 0
+    unique_values: int = 0
+
+
+class DataReport(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    schema_: list[DataColumnProfile] = Field(default_factory=list, alias="schema")
+    key_metrics: dict[str, Any] = Field(default_factory=dict)
+    anomalies: list[str] = Field(default_factory=list)
+    narrative_summary: str = ""
+
+    @property
+    def schema(self) -> list[DataColumnProfile]:
+        return self.schema_
+
+
+class ScanRequest(BaseModel):
+    source: str
+    query: str = ""
+    criteria: list[str] = Field(default_factory=list)
+    limit: int = 10
+    source_config: dict[str, Any] = Field(default_factory=dict)
+    raw_items: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class Signal(BaseModel):
+    source: str
+    content: str
+    timestamp: str = ""
+    raw_score: float = 0.0
+    metadata: dict[str, Any] = Field(default_factory=dict)

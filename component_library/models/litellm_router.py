@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from component_library.interfaces import BaseComponent, ComponentHealth
 from component_library.registry import register
+from factory.observability.langfuse_client import get_langfuse_client
 
 logger = structlog.get_logger(__name__)
 
@@ -178,14 +179,27 @@ class LitellmRouter(BaseComponent):
         model, temp = self._resolve(task_type, temperature)
         full_messages = self._coerce_messages(messages, user_message, system_prompt or system)
         kwargs = self._base_kwargs(model, max_tokens, temp)
-
-        response, latency_ms, fallback_used = await self._call_with_fallback(
-            litellm.acompletion,
+        generation = get_langfuse_client().generation(
+            "litellm_router.complete",
+            input=full_messages,
+            metadata={"task_type": task_type.value, "mode": "complete"},
             model=model,
-            messages=full_messages,
-            **{k: v for k, v in kwargs.items() if k != "model"},
         )
-        content: str = response.choices[0].message.content or ""
+        with generation:
+            response, latency_ms, fallback_used = await self._call_with_fallback(
+                litellm.acompletion,
+                model=model,
+                messages=full_messages,
+                **{k: v for k, v in kwargs.items() if k != "model"},
+            )
+            content: str = response.choices[0].message.content or ""
+            usage = getattr(response, "usage", None)
+            generation.end(
+                output=content,
+                usage=self._usage_dict(usage),
+                metadata={"latency_ms": latency_ms, "fallback_used": fallback_used},
+            )
+        content = response.choices[0].message.content or ""
         usage = getattr(response, "usage", None)
 
         self._record(
@@ -234,18 +248,32 @@ class LitellmRouter(BaseComponent):
         model, temp = self._resolve(task_type, temperature)
         full_messages = self._coerce_messages(messages, user_message, system_prompt or system)
         kwargs = self._base_kwargs(model, max_tokens, temp)
-
-        t0 = time.monotonic()
-        result: T = await self._instructor_client.chat.completions.create(
+        generation = get_langfuse_client().generation(
+            "litellm_router.structure",
+            input=full_messages,
+            metadata={
+                "task_type": task_type.value,
+                "mode": "structure",
+                "response_model": response_model.__name__,
+            },
             model=kwargs["model"],
-            response_model=response_model,
-            messages=full_messages,
-            max_retries=max_retries,
-            max_tokens=kwargs["max_tokens"],
-            temperature=kwargs["temperature"],
-            timeout=self._timeout,
         )
-        latency_ms = int((time.monotonic() - t0) * 1000)
+        with generation:
+            t0 = time.monotonic()
+            result: T = await self._instructor_client.chat.completions.create(
+                model=kwargs["model"],
+                response_model=response_model,
+                messages=full_messages,
+                max_retries=max_retries,
+                max_tokens=kwargs["max_tokens"],
+                temperature=kwargs["temperature"],
+                timeout=self._timeout,
+            )
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            generation.end(
+                output=result.model_dump(mode="json"),
+                metadata={"latency_ms": latency_ms},
+            )
 
         self._record(
             task_type=task_type,
@@ -466,3 +494,12 @@ class LitellmRouter(BaseComponent):
 
     def _estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
         return round((input_tokens * 0.000003) + (output_tokens * 0.000015), 6)
+
+    def _usage_dict(self, usage: Any) -> dict[str, Any]:
+        if usage is None:
+            return {}
+        return {
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+            "completion_tokens": getattr(usage, "completion_tokens", 0),
+            "total_tokens": getattr(usage, "total_tokens", 0),
+        }

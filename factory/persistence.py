@@ -150,6 +150,7 @@ def deployment_from_row(row: DeploymentRow) -> Deployment:
             "status": row.status,
             "access_url": row.access_url,
             "infrastructure": row.infrastructure,
+            "integrations": row.integrations,
             "health_last_checked": row.health_last_checked,
             "created_at": row.created_at,
             "activated_at": row.activated_at,

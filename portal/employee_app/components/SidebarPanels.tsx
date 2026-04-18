@@ -1,45 +1,55 @@
 "use client";
 
-import type { Approval, MemorySnapshot, UpdateStatus } from "./types";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { Settings2 } from "lucide-react";
+
+import { fetchMemory, fetchMetrics, fetchUpdates } from "@/lib/api";
+
+import { ActivityPanel } from "./ActivityPanel";
+import { InboxPanel } from "./InboxPanel";
+import type { MemorySnapshot, UpdateStatus } from "./types";
 
 type Props = {
-  approvals: Approval[];
-  activity: Record<string, unknown>[];
-  settings: Record<string, unknown>;
-  metrics: Record<string, unknown>;
-  memory: MemorySnapshot;
-  updates: UpdateStatus;
+  apiBase: string;
 };
 
-export function SidebarPanels({ approvals, activity, settings, metrics, memory, updates }: Props) {
+export function SidebarPanels({ apiBase }: Props) {
+  const [metrics, setMetrics] = useState<Record<string, unknown>>({});
+  const [memory, setMemory] = useState<MemorySnapshot>({});
+  const [updates, setUpdates] = useState<UpdateStatus>({});
+
+  useEffect(() => {
+    const load = async () => {
+      const [nextMetrics, nextMemory, nextUpdates] = await Promise.all([
+        fetchMetrics(apiBase),
+        fetchMemory(apiBase),
+        fetchUpdates(apiBase),
+      ]);
+      setMetrics(nextMetrics);
+      setMemory(nextMemory);
+      setUpdates(nextUpdates);
+    };
+    void load();
+  }, [apiBase]);
+
   return (
     <div className="flex h-full flex-col gap-4">
-      <Panel title={`Inbox (${approvals.length})`}>
-        {approvals.length ? approvals.map((approval) => (
-          <div key={approval.id} className="rounded-2xl bg-paper/70 p-3 text-sm">
-            {(approval.metadata?.brief as { executive_summary?: string } | undefined)?.executive_summary ?? approval.content}
-          </div>
-        )) : <p className="text-sm text-ink/65">No pending approvals.</p>}
-      </Panel>
-
-      <Panel title="Activity">
-        <div className="space-y-3 text-sm text-ink/75">
-          {activity.slice(-6).map((item, index) => (
-            <div key={index} className="rounded-2xl bg-paper/60 p-3">
-              {String(item["event_type"] ?? item["node"] ?? "event")}
-            </div>
-          ))}
-        </div>
-      </Panel>
+      <InboxPanel apiBase={apiBase} />
+      <ActivityPanel apiBase={apiBase} />
 
       <Panel title="Settings">
-        <div className="space-y-2 text-sm text-ink/75">
-          {Object.entries(settings).map(([key, value]) => (
-            <div key={key} className="flex items-center justify-between gap-3 rounded-2xl bg-paper/60 px-3 py-2">
-              <span>{key}</span>
-              <span className="text-right">{String(value)}</span>
-            </div>
-          ))}
+        <div className="rounded-[22px] bg-paper/55 p-4">
+          <div className="text-sm leading-6 text-ink/70">
+            Communication, approval limits, integrations, and org map now live on a dedicated settings route.
+          </div>
+          <Link
+            className="mt-4 inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent/90"
+            href="/settings"
+          >
+            <Settings2 className="h-4 w-4" />
+            Open Settings
+          </Link>
         </div>
       </Panel>
 

@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+from component_library.models.anthropic_provider import AnthropicProvider
+from component_library.registry import describe_all_components
 from component_library.status import is_component_production_ready
+from factory.config import get_settings
 from factory.models.blueprint import SelectedComponent
 from factory.models.requirements import EmployeeArchetype, EmployeeRequirements
 
@@ -58,6 +64,11 @@ TOOL_MAP: dict[str, str] = {
     "crm": "crm_tool",
     "search": "search_tool",
 }
+PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "component_selection.md"
+
+
+class ArchitectError(RuntimeError):
+    pass
 
 
 async def select_components(requirements: EmployeeRequirements) -> list[SelectedComponent]:
@@ -69,6 +80,13 @@ async def select_components(requirements: EmployeeRequirements) -> list[Selected
     Returns:
         List of SelectedComponent instances from the Component Library.
     """
+    settings = get_settings()
+    if settings.use_llm_architect:
+        return await _select_components_with_llm(requirements)
+    return _select_components_with_fallback(requirements)
+
+
+def _select_components_with_fallback(requirements: EmployeeRequirements) -> list[SelectedComponent]:
     baseline = (
         EXECUTIVE_ASSISTANT_COMPONENTS
         if requirements.employee_type == EmployeeArchetype.EXECUTIVE_ASSISTANT
@@ -92,7 +110,7 @@ async def select_components(requirements: EmployeeRequirements) -> list[Selected
     # Quality modules based on risk tier
     from factory.models.requirements import RiskTier
 
-    quality_base = {"autonomy_manager"}
+    quality_base = {"autonomy_manager", "explainability"}
     if requirements.risk_tier in (RiskTier.HIGH, RiskTier.CRITICAL):
         quality_base |= {"adversarial_review", "explainability", "approval_manager", "compliance_rules"}
     for q in quality_base:
@@ -100,4 +118,75 @@ async def select_components(requirements: EmployeeRequirements) -> list[Selected
             components.append(SelectedComponent(category="quality", component_id=q))
             known_component_ids.add(q)
 
+    _validate_selected_components(requirements, components)
     return components
+
+
+async def _select_components_with_llm(requirements: EmployeeRequirements) -> list[SelectedComponent]:
+    catalog = [description.model_dump(mode="json") for description in describe_all_components()]
+    prompt = PROMPT_PATH.read_text()
+    payload = (
+        f"{prompt}\n\n"
+        f"EmployeeRequirements:\n{json.dumps(requirements.model_dump(mode='json'), indent=2, sort_keys=True)}\n\n"
+        f"Component catalog:\n{json.dumps(catalog, indent=2, sort_keys=True)}\n"
+    )
+    components = await _call_selector_llm(payload)
+    _validate_selected_components(requirements, components, allow_unknown_tools=False)
+    return components
+
+
+async def _call_selector_llm(prompt: str) -> list[SelectedComponent]:
+    settings = get_settings()
+    provider = AnthropicProvider()
+    await provider.initialize(
+        {
+            "model": settings.generator_model,
+            "api_key": settings.anthropic_api_key,
+            "max_tokens": 4096,
+            "temperature": 0.0,
+        }
+    )
+    content = await provider.complete(
+        [{"role": "user", "content": prompt}],
+        max_tokens=4096,
+        temperature=0.0,
+        system="Return strict JSON only.",
+    )
+    payload = json.loads(content)
+    return [SelectedComponent.model_validate(item) for item in payload]
+
+
+def _validate_selected_components(
+    requirements: EmployeeRequirements,
+    components: list[SelectedComponent],
+    *,
+    allow_unknown_tools: bool = True,
+) -> None:
+    component_ids = {component.component_id for component in components}
+    for tool_name in requirements.required_tools:
+        matched = False
+        keyword_match_found = False
+        lowered = tool_name.lower()
+        for keyword, component_id in TOOL_MAP.items():
+            if keyword in lowered:
+                keyword_match_found = True
+                if component_id in component_ids:
+                    matched = True
+                    break
+        if matched:
+            continue
+        if keyword_match_found:
+            raise ArchitectError(f"Unsatisfied tool requirement: {tool_name}")
+        if not allow_unknown_tools and lowered:
+            raise ArchitectError(f"Unsatisfied tool requirement: {tool_name}")
+
+    if requirements.employee_type == EmployeeArchetype.LEGAL_INTAKE_ASSOCIATE:
+        required = {"text_processor", "document_analyzer", "draft_generator"}
+        missing = required - component_ids
+        if missing:
+            raise ArchitectError(f"Missing legal intake components: {', '.join(sorted(missing))}")
+    if requirements.employee_type == EmployeeArchetype.EXECUTIVE_ASSISTANT:
+        required = {"workflow_executor", "communication_manager", "scheduler_manager"}
+        missing = required - component_ids
+        if missing:
+            raise ArchitectError(f"Missing executive assistant components: {', '.join(sorted(missing))}")

@@ -1,0 +1,22 @@
+{
+  "nodes": [
+    {"node_id": "sanitize_input", "component_id": "input_protection", "custom_spec_id": null, "config": {"adapter": "sanitize_input"}},
+    {"node_id": "plan_work", "component_id": "workflow_executor", "custom_spec_id": null, "config": {"adapter": "executive_plan"}},
+    {"node_id": "coordinate_schedule", "component_id": "scheduler_manager", "custom_spec_id": null, "config": {"adapter": "executive_schedule"}},
+    {"node_id": "draft_response", "component_id": "communication_manager", "custom_spec_id": null, "config": {"adapter": "executive_draft"}},
+    {"node_id": "request_approval", "component_id": null, "custom_spec_id": "builtin_request_approval", "config": {"adapter": "builtin_request_approval"}},
+    {"node_id": "deliver", "component_id": null, "custom_spec_id": "builtin_deliver", "config": {"adapter": "builtin_deliver"}},
+    {"node_id": "log_completion", "component_id": null, "custom_spec_id": "builtin_log_completion", "config": {"adapter": "builtin_log_completion"}}
+  ],
+  "edges": [
+    {"from_node": "sanitize_input", "to_node": "plan_work", "condition": null},
+    {"from_node": "plan_work", "to_node": "coordinate_schedule", "condition": null},
+    {"from_node": "coordinate_schedule", "to_node": "draft_response", "condition": null},
+    {"from_node": "draft_response", "to_node": "request_approval", "condition": "requires_human_approval == true"},
+    {"from_node": "draft_response", "to_node": "deliver", "condition": null},
+    {"from_node": "request_approval", "to_node": "deliver", "condition": null},
+    {"from_node": "deliver", "to_node": "log_completion", "condition": null}
+  ],
+  "entry": "sanitize_input",
+  "terminals": ["log_completion"]
+}

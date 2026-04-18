@@ -20,7 +20,9 @@ import component_library.models.anthropic_provider  # noqa: F401
 import component_library.models.litellm_router  # noqa: F401
 import component_library.quality.audit_system  # noqa: F401
 import component_library.quality.autonomy_manager  # noqa: F401
+import component_library.quality.compliance_rules  # noqa: F401
 import component_library.quality.confidence_scorer  # noqa: F401
+import component_library.quality.explainability  # noqa: F401
 import component_library.quality.input_protection  # noqa: F401
 import component_library.quality.verification_layer  # noqa: F401
 import component_library.tools.calendar_tool  # noqa: F401
@@ -130,11 +132,31 @@ class EmployeeRuntimeService:
             allowed_tools=self.config["tool_permissions"],
             tools=tools,
             audit_logger=self.components.get("audit_system", None).log_event if self.components.get("audit_system") else None,
+            autonomy_manager=self.components.get("autonomy_manager"),
+            risk_tier=str(self.config.get("risk_tier", "MEDIUM")),
+            tenant_policy=self.config.get("tenant_policy", {}),
+            required_approver=str(self.config.get("supervisor_email", "supervisor")),
         )
+        if "autonomy_manager" in self.components and self.components.get("audit_system"):
+            if hasattr(self.components["autonomy_manager"], "set_audit_logger"):
+                self.components["autonomy_manager"].set_audit_logger(self.components["audit_system"].log_event)
+        if "adversarial_review" in self.components:
+            model_client = self.components.get("litellm_router") or self.components.get("anthropic_provider")
+            if hasattr(self.components["adversarial_review"], "set_model_client"):
+                self.components["adversarial_review"].set_model_client(model_client)
+            if hasattr(self.components["adversarial_review"], "set_audit_logger") and self.components.get("audit_system"):
+                self.components["adversarial_review"].set_audit_logger(self.components["audit_system"].log_event)
+        if "explainability" in self.components and self.components.get("audit_system"):
+            if hasattr(self.components["explainability"], "set_audit_logger"):
+                self.components["explainability"].set_audit_logger(self.components["audit_system"].log_event)
         self.engine = EmployeeEngine(
             self.config["workflow"],
             self.components,
-            {"employee_id": self.employee_id, "org_id": self.config["org_id"]},
+            {
+                "employee_id": self.employee_id,
+                "org_id": self.config["org_id"],
+                "workflow_graph": self.config.get("workflow_graph", {}),
+            },
         )
         self.behavior_manager = BehaviorManager(
             operational_memory=self.components["operational_memory"],
@@ -237,6 +259,28 @@ class EmployeeRuntimeService:
             {"default_attorney": self.config.get("default_attorney", "Forge Review")}
         )
         component_config.setdefault("audit_system", {}).update({"session_factory": self._session_factory})
+        component_config.setdefault("adversarial_review", {}).update(
+            {"deliberation_council": self.config.get("deliberation_council", {})}
+        )
+        component_config.setdefault("autonomy_manager", {}).update(
+            {
+                "required_approver": self.config.get("supervisor_email", "supervisor"),
+                "tenant_overrides": self.config.get("tenant_policy", {}),
+            }
+        )
+        component_config.setdefault("explainability", {}).update(
+            {
+                "session_factory": self._session_factory,
+                "employee_id": self.employee_id,
+                "org_id": self.config["org_id"],
+            }
+        )
+        component_config.setdefault("compliance_rules", {}).update(
+            {
+                "policy_name": self.config.get("policy_name", "legal"),
+                "conflicts": self.config.get("conflicts", []),
+            }
+        )
         component_config.setdefault("communication_manager", {}).update(
             {
                 "signature": self.config["employee_name"],
@@ -467,8 +511,8 @@ class EmployeeRuntimeService:
     async def updates_status(self) -> dict[str, Any]:
         learning_enabled = True
         settings = await self.get_settings()
-        if "learning_enabled" in settings:
-            learning_enabled = bool(settings["learning_enabled"])
+        if isinstance(settings.get("advanced"), dict) and "learning_enabled" in settings["advanced"]:
+            learning_enabled = bool(settings["advanced"]["learning_enabled"])
         behavior_rules = await self.list_behavior_rules()
         corrections = await self.list_corrections()
         return {
@@ -515,26 +559,80 @@ class EmployeeRuntimeService:
 
     async def get_settings(self) -> dict[str, Any]:
         prefs = await self.components["operational_memory"].list_by_category("preference")
-        return {
-            pref["key"].removeprefix("pref:"): pref["value"].get("value", pref["value"])
-            for pref in prefs
-        }
+        profile = self._default_settings_profile()
+        stored_profile = next(
+            (
+                pref["value"]
+                for pref in prefs
+                if pref.get("key") == "pref:settings_profile" and isinstance(pref.get("value"), dict)
+            ),
+            {},
+        )
+        if isinstance(stored_profile, dict):
+            profile = _merge_nested_dicts(profile, stored_profile)
+        for pref in prefs:
+            key = str(pref.get("key", "")).removeprefix("pref:")
+            value = pref.get("value", {}).get("value", pref.get("value"))
+            if key == "quiet_hours":
+                profile["communication_preferences"]["quiet_hours"] = value
+        return profile
 
     async def put_settings(self, values: dict[str, Any]) -> dict[str, Any]:
-        for key, value in values.items():
-            await self.components["operational_memory"].store(f"pref:{key}", {"value": value}, "preference")
-            if key == "quiet_hours" and self.behavior_manager is not None:
-                quiet_hour = _parse_quiet_hours(value)
-                if quiet_hour is not None:
-                    await self.behavior_manager.set_portal_quiet_hours(
-                        rule_id="portal-quiet-hours",
-                        description=f"Portal quiet-hours preference from settings: {value}",
-                        after_hour=quiet_hour,
-                        suppress_non_urgent=True,
-                        channels=["email", "messaging"],
-                        metadata={"source": "settings", "value": value},
-                    )
+        current = await self.get_settings()
+        next_settings = _merge_nested_dicts(current, values)
+        await self.components["operational_memory"].store(
+            "pref:settings_profile",
+            next_settings,
+            "preference",
+        )
+        quiet_hours = next_settings["communication_preferences"]["quiet_hours"]
+        await self.components["operational_memory"].store(
+            "pref:quiet_hours",
+            {"value": quiet_hours},
+            "preference",
+        )
+        if self.behavior_manager is not None:
+            quiet_hour = _parse_quiet_hours(quiet_hours)
+            if quiet_hour is not None:
+                await self.behavior_manager.set_portal_quiet_hours(
+                    rule_id="portal-quiet-hours",
+                    description=f"Portal quiet-hours preference from settings: {quiet_hours}",
+                    after_hour=quiet_hour,
+                    suppress_non_urgent=True,
+                    channels=["email", "messaging"],
+                    metadata={"source": "settings", "value": quiet_hours},
+                )
         return await self.get_settings()
+
+    def _default_settings_profile(self) -> dict[str, Any]:
+        return {
+            "communication_preferences": {
+                "preferred_channels": ["email", "messaging"],
+                "briefing_frequency": "daily",
+                "tone": "balanced",
+                "quiet_hours": "after_5pm",
+            },
+            "approval_rules": {
+                "required_actions": ["external_send", "contract_approval"],
+                "dollar_threshold": 1000,
+                "recipient_threshold": 5,
+            },
+            "authority_limits": {
+                "max_autonomous_action_value": 1000,
+                "max_recipients": 5,
+            },
+            "organizational_map": {
+                "people": list(self.config.get("org_map", [])),
+            },
+            "integrations": {
+                "connected_tools": list(self.config.get("tool_permissions", [])),
+            },
+            "advanced": {
+                "confidence_threshold": 0.72,
+                "council_enabled": "adversarial_review" in self.components,
+                "learning_enabled": True,
+            },
+        }
 
     async def list_behavior_rules(self) -> list[dict[str, Any]]:
         if self.behavior_manager is None:
@@ -589,10 +687,28 @@ class EmployeeRuntimeService:
         )
         return resolution.model_dump(mode="json")
 
-    async def activity(self) -> list[dict[str, Any]]:
-        if "audit_system" not in self.components:
-            return []
-        return await self.components["audit_system"].get_trail(self.employee_id)
+    async def activity(self, limit: int = 50) -> list[dict[str, Any]]:
+        activity: list[dict[str, Any]] = []
+        if "audit_system" in self.components:
+            activity.extend(await self.components["audit_system"].get_trail(self.employee_id))
+        if "explainability" in self.components:
+            records = await self.components["explainability"].get_records_for_employee()
+            activity.extend(
+                {
+                    "event_type": "reasoning_captured",
+                    "record_id": str(record.record_id),
+                    "task_id": str(record.task_id),
+                    "node_id": record.node_id,
+                    "decision": record.decision,
+                    "confidence": record.confidence,
+                    "occurred_at": record.created_at.isoformat(),
+                }
+                for record in records
+            )
+        return sorted(
+            activity,
+            key=lambda item: str(item.get("occurred_at", "")),
+        )[-limit:]
 
     async def metrics(self) -> dict[str, Any]:
         activity = await self.activity()
@@ -629,6 +745,20 @@ class EmployeeRuntimeService:
             "capabilities": self.config["ui"].get("capabilities", []),
             "deployment_format": self.config["deployment_format"],
         }
+
+    async def get_reasoning_records(self, task_id: str) -> list[dict[str, Any]]:
+        explainability = self.components.get("explainability")
+        if explainability is None:
+            return []
+        records = await explainability.get_records(task_id)
+        return [record.model_dump(mode="json") for record in records]
+
+    async def get_reasoning_record(self, record_id: str) -> dict[str, Any] | None:
+        explainability = self.components.get("explainability")
+        if explainability is None:
+            return None
+        record = await explainability.get_record(record_id)
+        return None if record is None else record.model_dump(mode="json")
 
     async def send_morning_briefing(self, conversation_id: str = "") -> dict[str, Any]:
         conv_id = await self.ensure_conversation(conversation_id)
@@ -782,9 +912,22 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
         return await service.updates_status()
 
     @app.get("/api/v1/activity")
-    async def get_activity() -> list[dict[str, Any]]:
+    async def get_activity(limit: int = 50) -> list[dict[str, Any]]:
         await ensure_ready()
-        return await service.activity()
+        return await service.activity(limit=limit)
+
+    @app.get("/api/v1/reasoning/{task_id}")
+    async def get_reasoning(task_id: str) -> list[dict[str, Any]]:
+        await ensure_ready()
+        return await service.get_reasoning_records(task_id)
+
+    @app.get("/api/v1/reasoning/record/{record_id}")
+    async def get_reasoning_record(record_id: str) -> dict[str, Any]:
+        await ensure_ready()
+        record = await service.get_reasoning_record(record_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="reasoning_record_not_found")
+        return record
 
     @app.get("/api/v1/approvals")
     async def get_approvals() -> list[dict[str, Any]]:
@@ -799,6 +942,14 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="approval_not_found") from exc
 
+    @app.post("/api/v1/approvals/{message_id}/resolve")
+    async def resolve_approval(message_id: str, payload: ApprovalDecision) -> dict[str, Any]:
+        await ensure_ready()
+        try:
+            return await service.decide_approval(message_id, payload.decision, payload.note)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="approval_not_found") from exc
+
     @app.get("/api/v1/settings")
     async def get_settings() -> dict[str, Any]:
         await ensure_ready()
@@ -806,6 +957,11 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
 
     @app.put("/api/v1/settings")
     async def update_settings(payload: SettingsPayload) -> dict[str, Any]:
+        await ensure_ready()
+        return await service.put_settings(payload.values)
+
+    @app.patch("/api/v1/settings")
+    async def patch_settings(payload: SettingsPayload) -> dict[str, Any]:
         await ensure_ready()
         return await service.put_settings(payload.values)
 
@@ -957,6 +1113,11 @@ def _normalize_runtime_config(employee_id: str, config: dict[str, Any]) -> dict[
         "employee_name": employee_name,
         "role_title": role_title,
         "workflow": workflow,
+        "workflow_graph": raw_manifest.get("workflow_graph", config.get("workflow_graph", {})),
+        "risk_tier": str(raw_manifest.get("risk_tier", config.get("risk_tier", "MEDIUM"))).upper(),
+        "tenant_policy": dict(config.get("tenant_policy", raw_manifest.get("tenant_policy", {})) or {}),
+        "policy_name": str(config.get("policy_name", raw_manifest.get("policy_name", "legal"))),
+        "conflicts": list(config.get("conflicts", raw_manifest.get("conflicts", [])) or []),
         "components": components,
         "tool_permissions": tool_permissions,
         "identity_layers": identity_layers,
@@ -973,6 +1134,10 @@ def _normalize_runtime_config(employee_id: str, config: dict[str, Any]) -> dict[
         "calendar_fixtures": config.get("calendar_fixtures", []),
         "message_fixtures": config.get("message_fixtures", []),
         "crm_fixtures": config.get("crm_fixtures", {}),
+        "deliberation_council": config.get(
+            "deliberation_council",
+            raw_manifest.get("deliberation_council", {}),
+        ),
         "timezone": config.get("timezone", "America/New_York"),
         "employee_database_url": config.get("employee_database_url", raw_manifest.get("employee_database_url", "")),
         "employee_db_auto_init": config.get("employee_db_auto_init", raw_manifest.get("employee_db_auto_init", True)),
@@ -1003,6 +1168,8 @@ def _default_components_for_workflow(workflow: str) -> list[dict[str, Any]]:
             {"id": "org_context", "category": "data", "config": {}},
             {"id": "confidence_scorer", "category": "quality", "config": {}},
             {"id": "audit_system", "category": "quality", "config": {}},
+            {"id": "autonomy_manager", "category": "quality", "config": {}},
+            {"id": "explainability", "category": "quality", "config": {}},
             {"id": "input_protection", "category": "quality", "config": {}},
             {"id": "verification_layer", "category": "quality", "config": {}},
         ]
@@ -1019,6 +1186,8 @@ def _default_components_for_workflow(workflow: str) -> list[dict[str, Any]]:
         {"id": "context_assembler", "category": "data", "config": {}},
         {"id": "org_context", "category": "data", "config": {}},
         {"id": "audit_system", "category": "quality", "config": {}},
+        {"id": "autonomy_manager", "category": "quality", "config": {}},
+        {"id": "explainability", "category": "quality", "config": {}},
         {"id": "input_protection", "category": "quality", "config": {}},
     ]
 
@@ -1048,3 +1217,13 @@ def _parse_quiet_hours(value: Any) -> int | None:
 
 def _normalize_correction_key(value: str) -> str:
     return "-".join(str(value).strip().lower().split())[:120]
+
+
+def _merge_nested_dicts(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_nested_dicts(merged[key], value)
+        else:
+            merged[key] = value
+    return merged

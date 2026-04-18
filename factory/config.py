@@ -63,12 +63,15 @@ class FactorySettings(BaseSettings):
     langfuse_public_key: str = Field("")
     langfuse_secret_key: str = Field("")
     langfuse_host: str = Field("https://cloud.langfuse.com")
+    langfuse_enabled: bool = Field(False)
 
     # ── Tool integrations ─────────────────────────────────────────
     tavily_api_key: str = Field("")
     composio_api_key: str = Field("")
     infisical_client_id: str = Field("")
     infisical_client_secret: str = Field("")
+    railway_api_token: str = Field("")
+    use_llm_architect: bool = Field(False)
 
     @property
     def is_production(self) -> bool:

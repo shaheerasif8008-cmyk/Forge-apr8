@@ -1,0 +1,88 @@
+- rule_id: critical_always_escalate
+  match:
+    risk_tier: CRITICAL
+  decision:
+    mode: escalate
+    approver: supervisor
+    rationale: Critical-risk actions always escalate to a human supervisor.
+
+- rule_id: irreversible_high_risk
+  match:
+    action_type: irreversible
+    risk_tier: HIGH
+  decision:
+    mode: approval_required
+    approver: supervisor
+    rationale: High-risk irreversible actions require supervisor approval.
+
+- rule_id: irreversible_medium_low_conf
+  match:
+    action_type: irreversible
+    risk_tier: MEDIUM
+    confidence_max: 0.85
+  decision:
+    mode: approval_required
+    approver: supervisor
+    rationale: Medium-risk irreversible actions below high confidence require approval.
+
+- rule_id: irreversible_low_low_conf
+  match:
+    action_type: irreversible
+    risk_tier: LOW
+    confidence_max: 0.7
+  decision:
+    mode: approval_required
+    rationale: Low-risk irreversible actions still require approval when confidence is weak.
+
+- rule_id: semi_reversible_high_low_conf
+  match:
+    action_type: semi_reversible
+    risk_tier: HIGH
+    confidence_max: 0.8
+  decision:
+    mode: approval_required
+    approver: supervisor
+    rationale: High-risk semi-reversible actions require approval unless confidence is strong.
+
+- rule_id: semi_reversible_medium_low_conf
+  match:
+    action_type: semi_reversible
+    risk_tier: MEDIUM
+    confidence_max: 0.55
+  decision:
+    mode: approval_required
+    rationale: Medium-risk semi-reversible actions need approval when confidence is low.
+
+- rule_id: reversible_high_low_conf
+  match:
+    action_type: reversible
+    risk_tier: HIGH
+    confidence_max: 0.75
+  decision:
+    mode: approval_required
+    approver: supervisor
+    rationale: High-risk reversible actions require approval below the confidence floor.
+
+- rule_id: reversible_medium_low_conf
+  match:
+    action_type: reversible
+    risk_tier: MEDIUM
+    confidence_max: 0.5
+  decision:
+    mode: approval_required
+    rationale: Medium-risk reversible actions require approval at low confidence.
+
+- rule_id: high_impact_bulk_action
+  match:
+    impact_recipients_min: 50
+    confidence_max: 0.9
+  decision:
+    mode: approval_required
+    approver: supervisor
+    rationale: Large-distribution actions require approval unless confidence is exceptionally high.
+
+- rule_id: default_autonomous
+  match: {}
+  decision:
+    mode: autonomous
+    rationale: Action falls within the default autonomous operating envelope.

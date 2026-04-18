@@ -1,45 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { employeeAppConfig, resolveApiBaseUrl, resolveWsBaseUrl } from "@/app/config";
 import { ChatInput } from "@/components/ChatInput";
 import { MessageBubble } from "@/components/MessageBubble";
 import { SidebarPanels } from "@/components/SidebarPanels";
 import { StreamingIndicator } from "@/components/StreamingIndicator";
-import type { Approval, ChatMessage, EmployeeMeta, MemorySnapshot, UpdateStatus } from "@/components/types";
+import type { ChatMessage, EmployeeMeta } from "@/components/types";
 
 export default function HomePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [approvals, setApprovals] = useState<Approval[]>([]);
-  const [activity, setActivity] = useState<Record<string, unknown>[]>([]);
-  const [settings, setSettings] = useState<Record<string, unknown>>({});
-  const [metrics, setMetrics] = useState<Record<string, unknown>>({});
-  const [memory, setMemory] = useState<MemorySnapshot>({});
-  const [updates, setUpdates] = useState<UpdateStatus>({});
   const [streaming, setStreaming] = useState(false);
   const [meta, setMeta] = useState<EmployeeMeta | null>(null);
 
   const conversationId = "default";
   const apiBase = resolveApiBaseUrl();
   const wsBase = resolveWsBaseUrl();
-
-  async function loadSidebar() {
-    const [approvalRes, activityRes, settingsRes, metricsRes, memoryRes, updatesRes] = await Promise.all([
-      fetch(`${apiBase}/api/v1/approvals`),
-      fetch(`${apiBase}/api/v1/activity`),
-      fetch(`${apiBase}/api/v1/settings`),
-      fetch(`${apiBase}/api/v1/metrics`),
-      fetch(`${apiBase}/api/v1/memory`),
-      fetch(`${apiBase}/api/v1/updates`),
-    ]);
-    setApprovals(await approvalRes.json());
-    setActivity(await activityRes.json());
-    setSettings(await settingsRes.json());
-    setMetrics(await metricsRes.json());
-    setMemory(await memoryRes.json());
-    setUpdates(await updatesRes.json());
-  }
 
   useEffect(() => {
     const load = async () => {
@@ -52,19 +29,9 @@ export default function HomePage() {
       if (metaResponse.ok) {
         setMeta(await metaResponse.json());
       }
-      await loadSidebar();
     };
     void load();
   }, [apiBase]);
-
-  async function decideApproval(messageId: string, decision: "approve" | "decline" | "modify") {
-    await fetch(`${apiBase}/api/v1/approvals/${messageId}/decide`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ decision, note: "" }),
-    });
-    await loadSidebar();
-  }
 
   async function sendMessage(content: string) {
     setStreaming(true);
@@ -80,9 +47,6 @@ export default function HomePage() {
     };
     socket.onmessage = (event) => {
       const payload = JSON.parse(event.data) as Record<string, unknown>;
-      if (payload.type === "status") {
-        setActivity((current) => [...current, payload]);
-      }
       if (payload.type === "token") {
         streamedText += String(payload.content ?? "");
         setMessages((current) => {
@@ -114,17 +78,11 @@ export default function HomePage() {
         });
         setStreaming(false);
         socket.close();
-        void loadSidebar();
       }
     };
     socket.onerror = () => setStreaming(false);
     socket.onclose = () => setStreaming(false);
   }
-
-  const pendingApprovals = useMemo(
-    () => approvals.filter((approval) => approval.metadata?.status === "pending"),
-    [approvals],
-  );
 
   return (
     <main className="min-h-screen px-4 py-6 md:px-8">
@@ -144,7 +102,7 @@ export default function HomePage() {
 
           <div className="flex min-h-[60vh] flex-col gap-4 overflow-y-auto pb-4">
             {messages.map((message) => (
-              <MessageBubble key={message.id} message={message} onDecision={decideApproval} />
+              <MessageBubble key={message.id} message={message} onDecision={async () => undefined} />
             ))}
             {streaming ? <StreamingIndicator /> : null}
           </div>
@@ -161,14 +119,7 @@ export default function HomePage() {
         </section>
 
         <aside className="min-h-[70vh]">
-          <SidebarPanels
-            approvals={pendingApprovals}
-            activity={activity}
-            settings={settings}
-            metrics={metrics}
-            memory={memory}
-            updates={updates}
-          />
+          <SidebarPanels apiBase={apiBase} />
         </aside>
       </div>
     </main>

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import asyncio
+from datetime import UTC, datetime
 
 import structlog
 
 from factory.models.deployment import Deployment, DeploymentStatus
+from factory.pipeline.deployer.connector import Connector, all_integrations_connected
 from factory.pipeline.evaluator.container_runner import wait_for_health
 
 logger = structlog.get_logger(__name__)
@@ -23,13 +25,27 @@ async def activate(deployment: Deployment) -> Deployment:
     """
     deployment.status = DeploymentStatus.ACTIVATING
     logger.info("activator_start", deployment_id=str(deployment.id))
-    healthy = await wait_for_health(f"{deployment.access_url}/health", timeout=60)
+    healthy = await wait_for_health(f"{deployment.access_url}/api/v1/health", timeout=60)
     if not healthy:
         deployment.status = DeploymentStatus.DEGRADED
         logger.warning("activator_unhealthy", deployment_id=str(deployment.id))
         return deployment
 
+    connector = Connector()
+    if deployment.integrations:
+        deadline = asyncio.get_event_loop().time() + 3600
+        while asyncio.get_event_loop().time() < deadline:
+            deployment = await connector.refresh_statuses(deployment)
+            if all_integrations_connected(deployment):
+                break
+            await asyncio.sleep(0.01)
+
+        if not all_integrations_connected(deployment):
+            deployment.status = DeploymentStatus.PENDING_CLIENT_ACTION
+            logger.warning("activator_waiting_for_client_action", deployment_id=str(deployment.id))
+            return deployment
+
     deployment.status = DeploymentStatus.ACTIVE
-    deployment.activated_at = datetime.utcnow()
+    deployment.activated_at = datetime.now(UTC)
     logger.info("activator_complete", access_url=deployment.access_url)
     return deployment

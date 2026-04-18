@@ -43,6 +43,7 @@ async def generate_config(
         "org_id": str(blueprint.org_id),
         "employee_name": blueprint.employee_name,
         "workflow": blueprint.workflow_id,
+        "workflow_graph": blueprint.workflow_graph.model_dump(mode="json") if blueprint.workflow_graph else {},
         "employee_database_url": "",
         "employee_db_auto_init": True,
         "components": [
@@ -59,6 +60,21 @@ async def generate_config(
         "firm_info": firm_info,
         "practice_areas": practice_areas,
         "default_attorney": org_context.get("default_attorney", "Forge Review"),
+        "deliberation_council": _deliberation_config(blueprint),
         "manifest": manifest.model_dump(mode="json"),
     })
     return config
+
+
+def _deliberation_config(blueprint: EmployeeBlueprint) -> dict[str, object]:
+    component_ids = {component.component_id for component in blueprint.components}
+    if "adversarial_review" not in component_ids:
+        return {}
+    return {
+        "advocate_models": ["openrouter/anthropic/claude-3.5-sonnet", "openrouter/openai/gpt-4o"],
+        "challenger_models": ["openrouter/openai/gpt-4o", "openrouter/anthropic/claude-3.5-haiku"],
+        "adjudicator_model": "openrouter/anthropic/claude-3.5-sonnet",
+        "max_reruns": 3,
+        "max_time_seconds": 600,
+        "trigger_conditions": ["high_risk_output", "irreversible_action"],
+    }

@@ -10,6 +10,7 @@ from factory.models.blueprint import (
     MonitoringPolicy,
     SelectedComponent,
     UIProfile,
+    WorkflowGraphSpec,
 )
 from factory.models.requirements import EmployeeArchetype, EmployeeRequirements, RiskTier
 
@@ -18,6 +19,7 @@ async def assemble_blueprint(
     requirements: EmployeeRequirements,
     components: list[SelectedComponent],
     gaps: list[CustomCodeSpec],
+    workflow_graph: WorkflowGraphSpec,
 ) -> EmployeeBlueprint:
     """Assemble all architect outputs into a final EmployeeBlueprint.
 
@@ -92,6 +94,7 @@ async def assemble_blueprint(
         components=components,
         custom_code_specs=gaps,
         workflow_id=workflow_id,
+        workflow_graph=workflow_graph,
         tool_permissions=tool_permissions,
         identity_layers=identity_layers,
         workflow_description=f"Employee: {requirements.name}. {requirements.role_summary}",

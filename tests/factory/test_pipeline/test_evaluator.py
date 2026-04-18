@@ -31,6 +31,7 @@ async def test_evaluator_runs_black_box_suites(sample_build, monkeypatch) -> Non
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.run_functional_tests", fake_suite)
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.run_security_tests", fake_suite)
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.run_behavioral_tests", fake_suite)
+    monkeypatch.setattr("factory.pipeline.evaluator.test_runner.run_hallucination_tests", fake_suite)
 
     result = await evaluate(sample_build)
     assert result.status == BuildStatus.PASSED

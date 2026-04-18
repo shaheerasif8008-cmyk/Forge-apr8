@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import structlog
 
 from factory.models.requirements import (
@@ -14,7 +16,11 @@ from factory.models.requirements import (
     OrgRelationship,
     UpdatePreferences,
 )
-from factory.pipeline.analyst.conversation import infer_employee_type, infer_risk_tier
+from factory.pipeline.analyst.conversation import (
+    AnalystGraphState,
+    infer_employee_type,
+    infer_risk_tier,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -33,8 +39,6 @@ async def build_requirements(raw_intake: str, org_id: str) -> EmployeeRequiremen
         V1 accepts structured input directly. V1.5 will use a conversational
         Analyst AI to extract requirements from free-form conversation.
     """
-    import uuid
-
     logger.info("building_requirements", org_id=org_id, intake_length=len(raw_intake))
 
     inferred_type = infer_employee_type(raw_intake)
@@ -61,6 +65,57 @@ async def build_requirements(raw_intake: str, org_id: str) -> EmployeeRequiremen
                 relationship=OrgRelationship.SUPERVISOR,
             )
         ],
+        authority_matrix={
+            "send_external_message": AuthorityLevel.REQUIRES_APPROVAL,
+            "update_internal_records": AuthorityLevel.AUTONOMOUS,
+        },
+        communication_rules=[
+            CommunicationRule(
+                name="business-hours",
+                description="Keep non-urgent outreach within normal business hours.",
+                channel="email",
+            )
+        ],
+        monitoring_preferences=MonitoringPreferences(),
+        update_preferences=UpdatePreferences(),
+        raw_intake=raw_intake,
+    )
+
+
+async def build_requirements_from_state(state: AnalystGraphState) -> EmployeeRequirements:
+    partial = dict(state.partial_requirements)
+    raw_intake = "\n".join(message["content"] for message in state.messages if message["role"] == "user")
+    inferred_type = state.inferred_employee_type or infer_employee_type(raw_intake)
+    inferred_tools = partial.get("required_tools") or _infer_tools(raw_intake, inferred_type)
+    role_title = partial.get("role_title") or (
+        "Executive Assistant"
+        if inferred_type == EmployeeArchetype.EXECUTIVE_ASSISTANT
+        else "Legal Intake Associate"
+    )
+    org_contacts = [
+        OrgContact(
+            name=contact.get("name", "Assigned Supervisor"),
+            role=contact.get("role", "Supervisor"),
+            email=contact.get("email", ""),
+            preferred_channel=contact.get("preferred_channel", "email"),
+            relationship=OrgRelationship.SUPERVISOR if contact.get("relationship") == "supervisor" else OrgRelationship.COLLEAGUE,
+        )
+        for contact in partial.get("org_contacts", [])
+    ] or [
+        OrgContact(name="Assigned Supervisor", role="Supervisor", email=partial.get("supervisor_email", ""), relationship=OrgRelationship.SUPERVISOR)
+    ]
+    return EmployeeRequirements(
+        org_id=uuid.UUID(state.org_id),
+        employee_type=inferred_type,
+        name=partial.get("name") or ("Operations Assistant" if inferred_type == EmployeeArchetype.EXECUTIVE_ASSISTANT else "Unnamed Employee"),
+        role_title=role_title,
+        role_summary=partial.get("role_summary") or raw_intake[:500],
+        primary_responsibilities=partial.get("primary_responsibilities") or _infer_responsibilities(inferred_type),
+        required_tools=inferred_tools,
+        communication_channels=partial.get("communication_channels") or ["email", "app"],
+        risk_tier=state.suggested_risk_tier or infer_risk_tier(raw_intake),
+        supervisor_email=partial.get("supervisor_email", ""),
+        org_map=org_contacts,
         authority_matrix={
             "send_external_message": AuthorityLevel.REQUIRES_APPROVAL,
             "update_internal_records": AuthorityLevel.AUTONOMOUS,

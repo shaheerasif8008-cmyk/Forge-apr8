@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from component_library.interfaces import BaseComponent, ComponentHealth
 from component_library.registry import register
+from factory.observability.langfuse_client import get_langfuse_client
 
 logger = structlog.get_logger(__name__)
 
@@ -119,14 +120,27 @@ class AnthropicProvider(BaseComponent):
         """
         full_messages = self._coerce_messages(messages, user_message, system_prompt or system)
         extra = self._call_kwargs(max_tokens, temperature)
-
-        response, latency_ms = await self._call_with_retry(
-            litellm.acompletion,
+        generation = get_langfuse_client().generation(
+            "anthropic_provider.complete",
+            input=full_messages,
+            metadata={"mode": "complete"},
             model=self._model,
-            messages=full_messages,
-            **extra,
         )
-        content: str = response.choices[0].message.content or ""
+        with generation:
+            response, latency_ms = await self._call_with_retry(
+                litellm.acompletion,
+                model=self._model,
+                messages=full_messages,
+                **extra,
+            )
+            content: str = response.choices[0].message.content or ""
+            usage = self._usage_dict(getattr(response, "usage", None))
+            generation.end(
+                output=content,
+                usage=usage,
+                metadata={"latency_ms": latency_ms},
+            )
+        content = response.choices[0].message.content or ""
         self._log_call(
             mode="complete",
             latency_ms=latency_ms,
@@ -169,16 +183,26 @@ class AnthropicProvider(BaseComponent):
 
         full_messages = self._coerce_messages(messages, user_message, system_prompt or system)
         extra = self._call_kwargs(max_tokens, temperature)
-
-        t0 = time.monotonic()
-        result: T = await self._instructor_client.chat.completions.create(
+        generation = get_langfuse_client().generation(
+            "anthropic_provider.structure",
+            input=full_messages,
+            metadata={"mode": "structure", "response_model": response_model.__name__},
             model=self._model,
-            response_model=response_model,
-            messages=full_messages,
-            max_retries=max_retries,
-            **extra,
         )
-        latency_ms = int((time.monotonic() - t0) * 1000)
+        with generation:
+            t0 = time.monotonic()
+            result: T = await self._instructor_client.chat.completions.create(
+                model=self._model,
+                response_model=response_model,
+                messages=full_messages,
+                max_retries=max_retries,
+                **extra,
+            )
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            generation.end(
+                output=result.model_dump(mode="json"),
+                metadata={"latency_ms": latency_ms},
+            )
         self._log_call(mode="structure", latency_ms=latency_ms, response_model=response_model.__name__)
         return result
 
@@ -327,3 +351,12 @@ class AnthropicProvider(BaseComponent):
             latency_ms=latency_ms,
             **extra,
         )
+
+    def _usage_dict(self, usage: Any) -> dict[str, Any]:
+        if usage is None:
+            return {}
+        return {
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+            "completion_tokens": getattr(usage, "completion_tokens", 0),
+            "total_tokens": getattr(usage, "total_tokens", 0),
+        }

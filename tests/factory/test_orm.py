@@ -11,8 +11,10 @@ from factory.models.orm import (
     ConversationRow,
     DeploymentRow,
     EmployeeRequirementsRow,
+    KnowledgeChunkRow,
     MessageRow,
     OperationalMemoryRow,
+    ReasoningRecordRow,
 )
 
 
@@ -28,6 +30,8 @@ def test_all_tables_registered_in_metadata() -> None:
         "operational_memories",
         "conversations",
         "messages",
+        "reasoning_records",
+        "knowledge_chunks",
         "audit_events",
         "monitoring_events",
         "performance_metrics",
@@ -105,6 +109,29 @@ def test_runtime_tables_have_expected_columns() -> None:
 
     message_cols = {c.name for c in MessageRow.__table__.columns}
     assert {"conversation_id", "role", "content", "message_type", "metadata"} <= message_cols
+
+    reasoning_cols = {c.name for c in ReasoningRecordRow.__table__.columns}
+    assert {
+        "org_id",
+        "employee_id",
+        "task_id",
+        "node_id",
+        "decision",
+        "rationale",
+        "inputs_considered",
+        "alternatives",
+        "evidence",
+    } <= reasoning_cols
+
+    knowledge_cols = {c.name for c in KnowledgeChunkRow.__table__.columns}
+    assert {
+        "tenant_id",
+        "document_id",
+        "chunk_index",
+        "content",
+        "embedding",
+        "metadata",
+    } <= knowledge_cols
 
 
 def test_audit_event_compute_hash_deterministic() -> None:

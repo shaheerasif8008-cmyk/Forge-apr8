@@ -43,6 +43,14 @@ services:
       timeout: 5s
       retries: 5
 
+  opa:
+    image: openpolicyagent/opa:latest-envoy
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./component_library/quality/policies:/policies
+
   factory:
     build:
       context: .
@@ -61,6 +69,7 @@ services:
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
       HUMAN_REVIEW_REQUIRED: "true"
       MAX_GENERATION_ITERATIONS: "5"
       EVALUATOR_TIMEOUT_SECONDS: "600"
@@ -97,6 +106,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
       FACTORY_JWT_SECRET: ${FACTORY_JWT_SECRET:-forge-factory-dev-secret}
     depends_on:
       factory:

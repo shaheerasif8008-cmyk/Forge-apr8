@@ -18,6 +18,8 @@ from uuid import UUID, uuid4
 import structlog
 from pydantic import BaseModel, Field
 
+from component_library.quality.schemas import ProposedAction
+
 logger = structlog.get_logger(__name__)
 
 
@@ -47,11 +49,19 @@ class ToolBroker:
         allowed_tools: list[str],
         tools: dict[str, Any] | None = None,
         audit_logger: Callable[..., Awaitable[Any]] | None = None,
+        autonomy_manager: Any | None = None,
+        risk_tier: str = "MEDIUM",
+        tenant_policy: dict[str, Any] | None = None,
+        required_approver: str = "supervisor",
     ) -> None:
         self._employee_id = employee_id
         self._allowed_tools = set(allowed_tools)
         self._tools = tools or {}
         self._audit_logger = audit_logger
+        self._autonomy_manager = autonomy_manager
+        self._risk_tier = str(risk_tier).upper()
+        self._tenant_policy = dict(tenant_policy or {})
+        self._required_approver = required_approver
 
     async def execute(self, tool_id: str, action: str, **params: object) -> ToolResult:
         """Execute a tool action through the broker.
@@ -84,6 +94,8 @@ class ToolBroker:
         if tool is None:
             raise ValueError(f"Tool '{tool_id}' is not registered with the broker.")
 
+        await self._enforce_autonomy(tool_id, action, dict(params))
+
         if self._audit_logger is not None:
             await self._audit_logger(
                 employee_id=self._employee_id,
@@ -96,3 +108,71 @@ class ToolBroker:
         result = ToolResult(call_id=call.id, success=True, data=data)
         logger.info("tool_broker_result", success=result.success, call_id=str(call.id))
         return result
+
+    async def _enforce_autonomy(self, tool_id: str, action: str, params: dict[str, object]) -> None:
+        if self._autonomy_manager is None:
+            return
+
+        proposed_action = ProposedAction(
+            type=self._classify_action(tool_id, action),
+            description=f"{tool_id}.{action}",
+            confidence=float(params.get("confidence", 1.0) or 0.0),
+            estimated_impact=self._estimate_impact(params),
+        )
+        decision = await self._autonomy_manager.evaluate(
+            {
+                "action": proposed_action.model_dump(mode="json"),
+                "context": {
+                    "risk_tier": self._risk_tier,
+                    "tenant_policy": {
+                        **self._tenant_policy,
+                        "required_approver": self._required_approver,
+                        "employee_id": self._employee_id,
+                        "org_id": str(params.get("org_id", "")),
+                    },
+                },
+            }
+        )
+        if decision.mode == "autonomous":
+            return
+        if self._audit_logger is not None:
+            await self._audit_logger(
+                employee_id=self._employee_id,
+                org_id=str(params.get("org_id", "")),
+                event_type="tool_blocked_by_autonomy",
+                details={
+                    "tool_id": tool_id,
+                    "action": action,
+                    "decision": decision.model_dump(mode="json"),
+                    "parameters": params,
+                },
+            )
+        raise PermissionError(decision.rationale)
+
+    def _classify_action(self, tool_id: str, action: str) -> str:
+        irreversible_actions = {
+            ("email_tool", "send"),
+            ("messaging_tool", "send"),
+        }
+        semi_reversible_actions = {
+            ("calendar_tool", "create_event"),
+            ("crm_tool", "upsert_contact"),
+        }
+        if (tool_id, action) in irreversible_actions:
+            return "irreversible"
+        if (tool_id, action) in semi_reversible_actions:
+            return "semi_reversible"
+        return "reversible"
+
+    def _estimate_impact(self, params: dict[str, object]) -> dict[str, object]:
+        recipients = 0
+        if isinstance(params.get("to"), str) and params.get("to"):
+            recipients = 1
+        attendees = params.get("attendees")
+        if isinstance(attendees, list):
+            recipients = max(recipients, len(attendees))
+        return {
+            "recipients": recipients,
+            "has_body": bool(params.get("body")),
+            "channel": str(params.get("channel", "")),
+        }

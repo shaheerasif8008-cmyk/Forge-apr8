@@ -8,10 +8,15 @@ from typing import Any
 from uuid import uuid4
 
 import structlog
-from langgraph.graph import StateGraph
 
 from component_library.interfaces import BaseComponent
 from employee_runtime.core.state import EmployeeState
+from employee_runtime.workflows.dynamic_builder import (
+    build_graph,
+    load_builtin_workflow_spec,
+    run_streaming,
+)
+from factory.observability.langfuse_client import get_langfuse_client
 
 logger = structlog.get_logger(__name__)
 
@@ -33,19 +38,18 @@ class EmployeeEngine:
         self._workflow_name = workflow_name
         self._components = components
         self._config = config
-        self._graph = self._build_graph(workflow_name)
+        self._workflow_spec = self._resolve_workflow_spec()
+        self._graph = self._build_graph()
         self._app = self._graph.compile()
 
-    def _build_graph(self, name: str) -> StateGraph:
-        registry = {
-            "legal_intake": ("employee_runtime.workflows.legal_intake", "build_graph"),
-            "executive_assistant": ("employee_runtime.workflows.executive_assistant", "build_graph"),
-        }
-        if name not in registry:
-            raise ValueError(f"Unknown workflow: {name}")
-        module_name, attr = registry[name]
-        module = __import__(module_name, fromlist=[attr])
-        return getattr(module, attr)(self._components)
+    def _resolve_workflow_spec(self) -> dict[str, Any]:
+        spec = self._config.get("workflow_graph")
+        if isinstance(spec, dict) and spec.get("nodes"):
+            return spec
+        return load_builtin_workflow_spec(self._workflow_name)
+
+    def _build_graph(self):
+        return build_graph(self._workflow_spec, self._components)
 
     def _initial_state(
         self,
@@ -87,7 +91,15 @@ class EmployeeEngine:
 
     async def run(self, initial_state: dict[str, Any]) -> dict[str, Any]:
         logger.info("engine_run_start")
-        result: dict[str, Any] = await self._app.ainvoke(initial_state)
+        with get_langfuse_client().trace(
+            f"employee_workflow.{self._workflow_name}",
+            input=initial_state,
+            metadata={"workflow": self._workflow_name},
+            user_id=str(initial_state.get("org_id", "")),
+            session_id=str(initial_state.get("task_id", "")),
+        ) as trace:
+            result: dict[str, Any] = await self._app.ainvoke(initial_state)
+            trace.end(output=result)
         logger.info("engine_run_complete")
         return result
 
@@ -98,9 +110,17 @@ class EmployeeEngine:
         metadata: dict[str, Any] | None = None,
         conversation_id: str = "",
     ) -> EmployeeState:
-        return await self._app.ainvoke(
-            self._initial_state(task_input, input_type, metadata, conversation_id)
-        )
+        initial_state = self._initial_state(task_input, input_type, metadata, conversation_id)
+        with get_langfuse_client().trace(
+            f"employee_workflow.{self._workflow_name}",
+            input=initial_state,
+            metadata={"workflow": self._workflow_name},
+            user_id=str(initial_state.get("org_id", "")),
+            session_id=str(initial_state.get("task_id", "")),
+        ) as trace:
+            result = await self._app.ainvoke(initial_state)
+            trace.end(output=result)
+        return result
 
     async def process_task_streaming(
         self,
@@ -109,16 +129,21 @@ class EmployeeEngine:
         metadata: dict[str, Any] | None = None,
         conversation_id: str = "",
     ) -> AsyncGenerator[dict[str, Any], None]:
-        module_name = {
-            "legal_intake": "employee_runtime.workflows.legal_intake",
-            "executive_assistant": "employee_runtime.workflows.executive_assistant",
-        }.get(self._workflow_name)
-        if module_name is None:
-            raise ValueError(f"Streaming not implemented for workflow: {self._workflow_name}")
-        module = __import__(module_name, fromlist=["run_streaming"])
-
-        async for event in module.run_streaming(
-            self._components,
-            self._initial_state(task_input, input_type, metadata, conversation_id),
-        ):
-            yield event
+        initial_state = self._initial_state(task_input, input_type, metadata, conversation_id)
+        with get_langfuse_client().trace(
+            f"employee_workflow.{self._workflow_name}.stream",
+            input=initial_state,
+            metadata={"workflow": self._workflow_name, "streaming": True},
+            user_id=str(initial_state.get("org_id", "")),
+            session_id=str(initial_state.get("task_id", "")),
+        ) as trace:
+            final_state: dict[str, Any] | None = None
+            async for event in run_streaming(
+                self._workflow_spec,
+                self._components,
+                initial_state,
+            ):
+                if event.get("type") == "complete":
+                    final_state = dict(event.get("state", {}))
+                yield event
+            trace.end(output=final_state or {})
