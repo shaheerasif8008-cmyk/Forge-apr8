@@ -10,6 +10,7 @@ Table mapping:
   operational_memories ← employee runtime preference/fact store
   conversations        ← employee runtime conversation roots
   messages             ← employee runtime messages and approval records
+  employee_tasks       ← persisted runtime task lifecycle and recovery state
   audit_events         ← append-only factory/runtime audit trail (hash-chained)
   reasoning_records    ← explainability records for task/node decisions
   knowledge_chunks     ← tenant-scoped document chunks and embeddings
@@ -332,6 +333,8 @@ class DeploymentRow(Base):
     access_url: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
     infrastructure: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     integrations: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    recovery_policy: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    recovery_state: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     health_last_checked: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -427,6 +430,69 @@ class ConversationRow(Base):
     )
 
     __table_args__ = (Index("ix_conversations_org_employee", "org_id", "employee_id"),)
+
+
+# ── employee_tasks ───────────────────────────────────────────────────────────
+
+
+class EmployeeTaskRow(Base):
+    """Persisted task lifecycle for a deployed employee.
+
+    The runtime owns recovery semantics here rather than in process memory.
+    Any queued/running task left behind by a crash or restart can be marked
+    interrupted during startup reconciliation.
+    """
+
+    __tablename__ = "employee_tasks"
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    org_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("client_orgs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    employee_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    conversation_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="queued")
+    input: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    input_type: Mapped[str] = mapped_column(String(50), nullable=False, default="chat")
+    input_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    response_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    result_card: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    workflow_output: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    state: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    requires_human_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    interruption_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=_utcnow,
+    )
+
+    conversation: Mapped[ConversationRow | None] = relationship("ConversationRow")
+
+    __table_args__ = (
+        Index("ix_employee_tasks_org_employee", "org_id", "employee_id"),
+        Index("ix_employee_tasks_status", "status"),
+        Index("ix_employee_tasks_conversation", "conversation_id"),
+    )
 
 
 # ── messages ─────────────────────────────────────────────────────────────────

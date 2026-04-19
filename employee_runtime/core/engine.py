@@ -57,9 +57,10 @@ class EmployeeEngine:
         input_type: str = "email",
         metadata: dict[str, Any] | None = None,
         conversation_id: str = "",
+        task_id: str = "",
     ) -> EmployeeState:
         return {
-            "task_id": str(uuid4()),
+            "task_id": task_id or str(uuid4()),
             "employee_id": self._config["employee_id"],
             "org_id": str(self._config["org_id"]),
             "conversation_id": conversation_id,
@@ -109,8 +110,9 @@ class EmployeeEngine:
         input_type: str = "email",
         metadata: dict[str, Any] | None = None,
         conversation_id: str = "",
+        task_id: str = "",
     ) -> EmployeeState:
-        initial_state = self._initial_state(task_input, input_type, metadata, conversation_id)
+        initial_state = self._initial_state(task_input, input_type, metadata, conversation_id, task_id)
         with get_langfuse_client().trace(
             f"employee_workflow.{self._workflow_name}",
             input=initial_state,
@@ -128,8 +130,9 @@ class EmployeeEngine:
         input_type: str = "email",
         metadata: dict[str, Any] | None = None,
         conversation_id: str = "",
+        task_id: str = "",
     ) -> AsyncGenerator[dict[str, Any], None]:
-        initial_state = self._initial_state(task_input, input_type, metadata, conversation_id)
+        initial_state = self._initial_state(task_input, input_type, metadata, conversation_id, task_id)
         with get_langfuse_client().trace(
             f"employee_workflow.{self._workflow_name}.stream",
             input=initial_state,

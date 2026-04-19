@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
+
 import pytest
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 from employee_runtime.core.api import create_employee_app
 from employee_runtime.core.conversation_repository import InMemoryConversationRepository
-from tests.fixtures.sample_emails import CLEAR_QUALIFIED
+from employee_runtime.core.task_repository import InMemoryTaskRepository
+from tests.fixtures.sample_emails import AMBIGUOUS, CLEAR_QUALIFIED
 
 
 def _executive_manifest() -> dict[str, object]:
@@ -64,7 +68,7 @@ async def test_chat_history_survives_service_reinitialization() -> None:
         assert history.status_code == 200
         messages = history.json()["messages"]
         assert any(message["role"] == "user" and CLEAR_QUALIFIED in message["content"] for message in messages)
-        assert any(message["message_type"] == "approval_request" for message in messages)
+        assert any(message["message_type"] == "status_update" for message in messages)
 
 
 @pytest.mark.anyio
@@ -75,7 +79,7 @@ async def test_pending_approvals_recover_after_restart() -> None:
     async with AsyncClient(transport=ASGITransport(app=app_one), base_url="http://test") as client:
         response = await client.post(
             "/api/v1/tasks",
-            json={"input": CLEAR_QUALIFIED, "context": {}, "conversation_id": "default"},
+            json={"input": AMBIGUOUS, "context": {}, "conversation_id": "default"},
         )
         assert response.status_code == 200
 
@@ -87,6 +91,70 @@ async def test_pending_approvals_recover_after_restart() -> None:
         assert len(payload) == 1
         assert payload[0]["message_type"] == "approval_request"
         assert payload[0]["metadata"]["status"] == "pending"
+
+
+@pytest.mark.anyio
+async def test_running_tasks_are_marked_interrupted_on_restart() -> None:
+    repository = InMemoryConversationRepository()
+    task_repository = InMemoryTaskRepository()
+    task_id = "00000000-0000-0000-0000-000000000111"
+
+    app_one = create_employee_app(
+        "arthur",
+        {
+            "org_id": "org-1",
+            "conversation_repository": repository,
+            "task_repository": task_repository,
+        },
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app_one), base_url="http://test") as client:
+        pending_request = client.post(
+            "/api/v1/tasks",
+            json={
+                "task_id": task_id,
+                "input": CLEAR_QUALIFIED,
+                "context": {"_test_runtime_delay_seconds": 10},
+                "conversation_id": "default",
+            },
+            timeout=None,
+        )
+        request_task = asyncio.create_task(pending_request)
+        try:
+            for _ in range(20):
+                response = await client.get(f"/api/v1/tasks/{task_id}")
+                if response.status_code == 200 and response.json()["status"] == "running":
+                    break
+                await asyncio.sleep(0.1)
+            else:
+                raise AssertionError("task never entered running state")
+        finally:
+            request_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await request_task
+
+    app_two = create_employee_app(
+        "arthur",
+        {
+            "org_id": "org-1",
+            "conversation_repository": repository,
+            "task_repository": task_repository,
+        },
+    )
+    async with AsyncClient(transport=ASGITransport(app=app_two), base_url="http://test") as client:
+        task_response = await client.get(f"/api/v1/tasks/{task_id}")
+        assert task_response.status_code == 200
+        assert task_response.json()["status"] == "interrupted"
+        assert task_response.json()["interruption_reason"] == "runtime_restarted_before_task_completion"
+
+        recovery = await client.get("/api/v1/runtime/recovery")
+        assert recovery.status_code == 200
+        assert task_id in recovery.json()["startup_summary"]["interrupted_task_ids"]
+
+        history = await client.get("/api/v1/chat/history")
+        assert history.status_code == 200
+        messages = history.json()["messages"]
+        assert any(message["message_type"] == "status_update" and message["metadata"].get("recovery") for message in messages)
 
 
 @pytest.mark.anyio
@@ -175,7 +243,7 @@ def test_websocket_chat_persists_messages_in_order() -> None:
         messages = history.json()["messages"]
         assert messages[0]["role"] == "user"
         assert messages[0]["content"] == CLEAR_QUALIFIED
-        assert messages[-1]["message_type"] == "approval_request"
+        assert messages[-1]["message_type"] == "status_update"
 
 
 @pytest.mark.anyio

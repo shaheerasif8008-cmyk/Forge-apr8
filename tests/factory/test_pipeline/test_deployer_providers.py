@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from factory.models.build import Build
@@ -107,3 +105,6 @@ async def test_provisioner_dispatches_local(sample_org, monkeypatch) -> None:
 
     assert result.infrastructure["provider"] == "local_docker"
     assert result.access_url == "http://127.0.0.1:8123"
+    assert result.recovery_policy["task_state_source"] == "database"
+    assert result.recovery_policy["recovery_endpoint"] == "/api/v1/runtime/recovery"
+    assert result.recovery_state["restart_count"] == 0

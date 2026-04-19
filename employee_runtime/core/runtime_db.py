@@ -38,13 +38,15 @@ async def initialize_runtime_database(
     database_url: str,
     raw_org_id: str,
     employee_id: str,
+    auto_init: bool = True,
 ) -> RuntimeDatabaseHandle:
     engine = create_async_engine(database_url, pool_pre_ping=True)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     org_uuid = normalize_org_uuid(raw_org_id)
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    if auto_init:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
     async with session_factory() as session:
         existing = await session.execute(select(ClientOrgRow).where(ClientOrgRow.id == UUID(org_uuid)))

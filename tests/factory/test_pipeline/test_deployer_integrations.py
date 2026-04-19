@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 import pytest
 
@@ -52,11 +53,28 @@ async def test_connector_and_activator_complete_successfully(sample_blueprint, s
     async def fake_wait_for_health(url, timeout=60):
         return True
 
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get(self, url):
+            assert url == "http://127.0.0.1:9999/api/v1/runtime/recovery"
+            return SimpleNamespace(status_code=200, json=lambda: {"startup_summary": {"interrupted_task_ids": []}})
+
     monkeypatch.setattr("factory.pipeline.deployer.activator.wait_for_health", fake_wait_for_health)
+    monkeypatch.setattr("factory.pipeline.deployer.activator.httpx.AsyncClient", FakeAsyncClient)
     activated = await activate(deployment)
 
     assert activated.status == DeploymentStatus.ACTIVE
     assert all(integration.status == "connected" for integration in activated.integrations)
+    assert activated.recovery_policy["health_endpoint"] == "/api/v1/health"
+    assert activated.recovery_state["last_runtime_recovery"]["startup_summary"]["interrupted_task_ids"] == []
 
 
 @pytest.mark.anyio

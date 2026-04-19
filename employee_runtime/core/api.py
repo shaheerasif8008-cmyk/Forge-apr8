@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import (
     FastAPI,
@@ -56,6 +58,11 @@ from employee_runtime.core.conversation_repository import (
 )
 from employee_runtime.core.engine import EmployeeEngine
 from employee_runtime.core.runtime_db import initialize_runtime_database, normalize_org_uuid
+from employee_runtime.core.task_repository import (
+    InMemoryTaskRepository,
+    SqlAlchemyTaskRepository,
+    TaskRepository,
+)
 from employee_runtime.core.tool_broker import ToolBroker
 from employee_runtime.modules.behavior_manager import BehaviorManager
 from employee_runtime.modules.pulse_engine import DailyLoopRequest, PulseEngine
@@ -63,6 +70,7 @@ from factory.models.orm import KnowledgeChunkRow
 
 
 class TaskRequest(BaseModel):
+    task_id: str = ""
     input: str
     context: dict[str, object] = Field(default_factory=dict)
     conversation_id: str = ""
@@ -131,16 +139,21 @@ class EmployeeRuntimeService:
         self.pulse_engine: PulseEngine | None = None
         self.behavior_manager: BehaviorManager | None = None
         self.conversation_repository: ConversationRepository | None = None
+        self.task_repository: TaskRepository | None = None
         self._runtime_db_handle: Any | None = None
         self._session_factory: Any | None = None
         self._initialization_error = ""
-        self.tasks: dict[str, dict[str, Any]] = {}
+        self._startup_recovery_summary: dict[str, Any] = {
+            "recovered_at": "",
+            "interrupted_task_ids": [],
+        }
 
     async def initialize(self) -> None:
         if self.engine is not None or self._initialization_error:
             return
         try:
             await self._initialize_persistence()
+            await self._reconcile_inflight_tasks()
         except Exception as exc:
             self._initialization_error = f"runtime_persistence_unavailable: {exc}"
             return
@@ -209,8 +222,10 @@ class EmployeeRuntimeService:
             return
 
         provided_repository = self.config.get("conversation_repository")
+        provided_task_repository = self.config.get("task_repository")
         if provided_repository is not None:
             self.conversation_repository = provided_repository
+            self.task_repository = provided_task_repository or InMemoryTaskRepository()
             return
 
         session_factory = self.config.get("session_factory")
@@ -218,24 +233,32 @@ class EmployeeRuntimeService:
             self.config["org_id"] = normalize_org_uuid(self.config["org_id"])
             self._session_factory = session_factory
             self.conversation_repository = SqlAlchemyConversationRepository(session_factory)
+            self.task_repository = provided_task_repository or SqlAlchemyTaskRepository(
+                session_factory,
+                org_id=str(self.config["org_id"]),
+            )
             return
 
         database_url = str(self.config.get("employee_database_url", "")).strip()
         if database_url:
-            if not bool(self.config.get("employee_db_auto_init", True)):
-                raise RuntimeError("employee-local database auto init is disabled")
             handle = await initialize_runtime_database(
                 database_url=database_url,
                 raw_org_id=str(self.config["org_id"]),
                 employee_id=self.employee_id,
+                auto_init=bool(self.config.get("employee_db_auto_init", True)),
             )
             self._runtime_db_handle = handle
             self._session_factory = handle.session_factory
             self.config["org_id"] = handle.org_uuid
             self.conversation_repository = SqlAlchemyConversationRepository(handle.session_factory)
+            self.task_repository = SqlAlchemyTaskRepository(
+                handle.session_factory,
+                org_id=str(handle.org_uuid),
+            )
             return
 
         self.conversation_repository = InMemoryConversationRepository()
+        self.task_repository = provided_task_repository or InMemoryTaskRepository()
 
     async def shutdown(self) -> None:
         if self._runtime_db_handle is not None:
@@ -337,6 +360,42 @@ class EmployeeRuntimeService:
         )
         return conv_id
 
+    async def _reconcile_inflight_tasks(self) -> None:
+        if self.task_repository is None:
+            return
+        interrupted = await self.task_repository.mark_inflight_tasks_interrupted(
+            self.employee_id,
+            reason="runtime_restarted_before_task_completion",
+        )
+        self._startup_recovery_summary = {
+            "recovered_at": datetime.now(UTC).isoformat(),
+            "interrupted_task_ids": [task["task_id"] for task in interrupted],
+        }
+        for task in interrupted:
+            conversation_id = str(task.get("conversation_id", ""))
+            if not conversation_id or self.conversation_repository is None:
+                continue
+            await self.add_message(
+                conversation_id,
+                "system",
+                "A running task was interrupted by a runtime restart and marked interrupted.",
+                "status_update",
+                {"task_id": task["task_id"], "status": "interrupted", "recovery": True},
+            )
+
+    def _recovery_policy(self) -> dict[str, Any]:
+        return {
+            "task_state_source": "employee_tasks",
+            "approval_state_source": "conversation_messages",
+            "history_state_source": "conversation_messages",
+            "persistent_memory_sources": ["operational_memory", "knowledge_base"],
+            "ephemeral_memory_sources": ["working_memory"],
+            "inflight_restart_behavior": "mark_interrupted_and_notify",
+            "restart_requires_healthcheck": True,
+            "health_endpoint": "/api/v1/health",
+            "recovery_endpoint": "/api/v1/runtime/recovery",
+        }
+
     async def add_message(
         self,
         conversation_id: str,
@@ -379,33 +438,101 @@ class EmployeeRuntimeService:
     async def submit_task(self, request: TaskRequest) -> dict[str, Any]:
         if self.engine is None:
             raise RuntimeError("Employee runtime service is not initialized.")
+        if self.task_repository is None:
+            raise RuntimeError("Task repository is not initialized.")
 
         conv_id = await self.ensure_conversation(request.conversation_id)
-        await self.add_message(conv_id, "user", request.input, "text", dict(request.context))
-        result = await self.engine.process_task(
-            request.input,
-            input_type=str(request.context.get("input_type", "chat")),
-            metadata=request.context,
+        task_id = request.task_id or str(uuid4())
+        input_type = str(request.context.get("input_type", "chat"))
+        await self.task_repository.create_task(
+            task_id=task_id,
+            employee_id=self.employee_id,
+            org_id=str(self.config["org_id"]),
             conversation_id=conv_id,
+            input_text=request.input,
+            input_type=input_type,
+            input_metadata=dict(request.context),
         )
-        task_id = result["task_id"]
-        self.tasks[task_id] = result
-
-        summary = self._result_summary(result)
-        await self.add_message(conv_id, "assistant", summary, "status_update", {"task_id": task_id})
-        await self.add_message(
-            conv_id,
-            "assistant",
-            summary,
-            "approval_request",
+        await self.add_message(conv_id, "user", request.input, "text", dict(request.context))
+        await self.task_repository.update_task(
+            task_id,
+            self.employee_id,
             {
-                "task_id": task_id,
-                "status": "pending",
-                "brief": self._result_card(result),
-                "decision": "",
+                "status": "running",
+                "started_at": datetime.now(UTC),
             },
         )
-        return result
+        await self.add_message(
+            conv_id,
+            "system",
+            "Task received and running.",
+            "status_update",
+            {"task_id": task_id, "status": "running"},
+        )
+        delay_seconds = float(request.context.get("_test_runtime_delay_seconds", 0) or 0)
+        if delay_seconds > 0:
+            await asyncio.sleep(min(delay_seconds, 30.0))
+        try:
+            result = await self.engine.process_task(
+                request.input,
+                input_type=input_type,
+                metadata=request.context,
+                conversation_id=conv_id,
+                task_id=task_id,
+            )
+        except Exception as exc:
+            await self.task_repository.update_task(
+                task_id,
+                self.employee_id,
+                {
+                    "status": "failed",
+                    "error": str(exc),
+                    "completed_at": datetime.now(UTC),
+                },
+            )
+            await self.add_message(
+                conv_id,
+                "system",
+                f"Task failed: {exc}",
+                "status_update",
+                {"task_id": task_id, "status": "failed"},
+            )
+            raise
+
+        final_status = "awaiting_approval" if result.get("requires_human_approval") else "completed"
+        summary = self._result_summary(result)
+        card = self._result_card(result)
+        persisted = await self.task_repository.update_task(
+            task_id,
+            self.employee_id,
+            {
+                "status": final_status,
+                "response_summary": summary,
+                "result_card": card,
+                "workflow_output": dict(result.get("workflow_output", {})),
+                "state": dict(result),
+                "requires_human_approval": bool(result.get("requires_human_approval", False)),
+                "completed_at": datetime.now(UTC) if final_status == "completed" else None,
+                "error": "",
+                "interruption_reason": "",
+            },
+        )
+
+        await self.add_message(conv_id, "assistant", summary, "status_update", {"task_id": task_id, "status": final_status})
+        if final_status == "awaiting_approval":
+            await self.add_message(
+                conv_id,
+                "assistant",
+                summary,
+                "approval_request",
+                {
+                    "task_id": task_id,
+                    "status": "pending",
+                    "brief": card,
+                    "decision": "",
+                },
+            )
+        return persisted
 
     def _result_summary(self, result: dict[str, Any]) -> str:
         return (
@@ -420,19 +547,19 @@ class EmployeeRuntimeService:
         return result.get("brief", {})
 
     async def task_status(self, task_id: str) -> dict[str, Any]:
-        if task_id not in self.tasks:
+        if self.task_repository is None:
+            raise RuntimeError("Task repository is not initialized.")
+        task = await self.task_repository.get_task(task_id, self.employee_id)
+        if task is None:
             raise KeyError(task_id)
-        return self.tasks[task_id]
+        return task
 
     async def task_brief(self, task_id: str) -> dict[str, Any]:
         task = await self.task_status(task_id)
         return self._result_card(task)
 
     async def record_correction(self, task_id: str, payload: CorrectionPayload) -> dict[str, Any]:
-        if task_id not in self.tasks:
-            raise KeyError(task_id)
-
-        task = self.tasks[task_id]
+        task = await self.task_status(task_id)
         correction_key = _normalize_correction_key(payload.message)
         prior = await self.components["operational_memory"].list_by_category("mistake_correction")
         repeat_count = 1 + sum(
@@ -487,6 +614,16 @@ class EmployeeRuntimeService:
             task["response_summary"] = payload.corrected_output
             if isinstance(task.get("result_card"), dict):
                 task["result_card"]["executive_summary"] = payload.corrected_output
+        if self.task_repository is not None:
+            await self.task_repository.update_task(
+                task_id,
+                self.employee_id,
+                {
+                    "response_summary": task.get("response_summary", ""),
+                    "result_card": dict(task.get("result_card", {})),
+                    "state": dict(task),
+                },
+            )
         conversation_id = str(task.get("conversation_id", ""))
         if conversation_id:
             await self.add_message(
@@ -590,9 +727,9 @@ class EmployeeRuntimeService:
         if working_memory is None or not hasattr(working_memory, "get_all"):
             return []
         task_ids: list[str] = []
-        for task_id in self.tasks:
-            if task_id not in task_ids:
-                task_ids.append(task_id)
+        if self.task_repository is not None:
+            recent_tasks = await self.task_repository.list_recent_tasks(self.employee_id, limit=20)
+            task_ids = [str(task["task_id"]) for task in recent_tasks]
         snapshots: list[dict[str, Any]] = []
         for task_id in reversed(task_ids[-20:]):
             values = await working_memory.get_all(task_id)
@@ -834,6 +971,18 @@ class EmployeeRuntimeService:
             self.employee_id,
             metadata,
         )
+        task_id = str(metadata.get("task_id", ""))
+        if task_id and self.task_repository is not None:
+            next_status = "completed" if decision in {"approve", "modify"} else "interrupted"
+            await self.task_repository.update_task(
+                task_id,
+                self.employee_id,
+                {
+                    "status": next_status,
+                    "completed_at": datetime.now(UTC),
+                    "interruption_reason": "" if next_status == "completed" else f"approval_{decision}",
+                },
+            )
         if "audit_system" in self.components:
             await self.components["audit_system"].log_event(
                 employee_id=self.employee_id,
@@ -1080,6 +1229,14 @@ class EmployeeRuntimeService:
             "confidence_trend": confidence_points[-12:],
         }
 
+    async def recovery_status(self) -> dict[str, Any]:
+        task_counts = await self.task_repository.task_counts(self.employee_id) if self.task_repository is not None else {}
+        return {
+            "policy": self._recovery_policy(),
+            "startup_summary": dict(self._startup_recovery_summary),
+            "task_counts": task_counts,
+        }
+
     async def meta(self) -> dict[str, Any]:
         return {
             "employee_name": self.config["employee_name"],
@@ -1211,7 +1368,7 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
         result = await service.submit_task(request)
         return TaskResponse(
             task_id=result["task_id"],
-            status="completed",
+            status=str(result.get("status", "completed")),
             output=service._result_summary(result),
             brief=service._result_card(result),
         )
@@ -1294,6 +1451,11 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
     async def get_updates() -> dict[str, Any]:
         await ensure_ready()
         return await service.updates_status()
+
+    @app.get("/api/v1/runtime/recovery")
+    async def get_recovery_status() -> dict[str, Any]:
+        await ensure_ready()
+        return await service.recovery_status()
 
     @app.get("/api/v1/activity")
     async def get_activity(limit: int = 50) -> list[dict[str, Any]]:
@@ -1434,25 +1596,56 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
                     continue
                 conversation_id = await service.ensure_conversation(payload.get("conversation_id", ""))
                 await service.add_message(conversation_id, "user", payload["content"], "text", {})
+                task_id = str(payload.get("task_id") or uuid4())
+                if service.task_repository is None:
+                    await websocket.send_json({"type": "error", "message": "task_repository_unavailable"})
+                    continue
+                await service.task_repository.create_task(
+                    task_id=task_id,
+                    employee_id=service.employee_id,
+                    org_id=str(service.config["org_id"]),
+                    conversation_id=conversation_id,
+                    input_text=payload["content"],
+                    input_type="chat",
+                    input_metadata={},
+                )
+                await service.task_repository.update_task(
+                    task_id,
+                    service.employee_id,
+                    {"status": "running", "started_at": datetime.now(UTC)},
+                )
                 assert service.engine is not None
                 async for event in service.engine.process_task_streaming(
                     payload["content"],
                     conversation_id=conversation_id,
+                    task_id=task_id,
                 ):
                     if event["type"] == "status":
                         await websocket.send_json({"type": "status", "node": event["node"], "status": event["status"]})
                     elif event["type"] == "complete":
                         state = event["state"]
-                        task_id = state["task_id"]
-                        service.tasks[task_id] = state
                         card = service._result_card(state)
                         summary = service._result_summary(state)
+                        final_status = "awaiting_approval" if state.get("requires_human_approval") else "completed"
+                        await service.task_repository.update_task(
+                            task_id,
+                            service.employee_id,
+                            {
+                                "status": final_status,
+                                "response_summary": summary,
+                                "result_card": card,
+                                "workflow_output": dict(state.get("workflow_output", {})),
+                                "state": dict(state),
+                                "requires_human_approval": bool(state.get("requires_human_approval", False)),
+                                "completed_at": datetime.now(UTC) if final_status == "completed" else None,
+                            },
+                        )
                         await service.add_message(
                             conversation_id,
                             "assistant",
                             summary,
-                            "approval_request",
-                            {"task_id": task_id, "status": "pending", "brief": card},
+                            "approval_request" if final_status == "awaiting_approval" else "status_update",
+                            {"task_id": task_id, "status": "pending" if final_status == "awaiting_approval" else final_status, "brief": card},
                         )
                         for token in summary.split():
                             await websocket.send_json({"type": "token", "content": f"{token} "})
@@ -1554,6 +1747,7 @@ def _normalize_runtime_config(employee_id: str, config: dict[str, Any]) -> dict[
         "static_dir": config.get("static_dir", raw_manifest.get("static_dir", "")),
         "session_factory": config.get("session_factory"),
         "conversation_repository": config.get("conversation_repository"),
+        "task_repository": config.get("task_repository"),
     }
 
 

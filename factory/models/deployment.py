@@ -22,6 +22,7 @@ class DeploymentStatus(str, Enum):
     PROVISIONING = "provisioning"
     CONNECTING = "connecting"
     ACTIVATING = "activating"
+    RECOVERING = "recovering"
     ACTIVE = "active"
     PENDING_CLIENT_ACTION = "pending_client_action"
     DEGRADED = "degraded"
@@ -48,6 +49,14 @@ class Deployment(BaseModel):
     access_url: str = ""
     infrastructure: dict[str, object] = Field(default_factory=dict)
     integrations: list[IntegrationStatus] = Field(default_factory=list)
+    recovery_policy: dict[str, object] = Field(
+        default_factory=lambda: {
+            "task_state_source": "database",
+            "inflight_restart_behavior": "mark_interrupted",
+            "approval_state_source": "messages",
+        }
+    )
+    recovery_state: dict[str, object] = Field(default_factory=dict)
     health_last_checked: datetime | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     activated_at: datetime | None = None

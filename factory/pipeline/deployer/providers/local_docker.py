@@ -26,5 +26,16 @@ async def provision_local(deployment: Deployment, build: Build) -> Deployment:
         "port": port,
         "image_tag": image_tag,
     }
+    deployment.recovery_policy = {
+        "restart_mode": "manual_roster_control",
+        "task_state_source": "database",
+        "inflight_restart_behavior": "mark_interrupted",
+        "recovery_endpoint": "/api/v1/runtime/recovery",
+    }
+    deployment.recovery_state = {
+        "restart_count": 0,
+        "last_restarted_at": None,
+        "last_runtime_recovery": {},
+    }
     deployment.access_url = f"http://127.0.0.1:{port}"
     return deployment

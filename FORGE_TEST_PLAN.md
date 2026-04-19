@@ -41,7 +41,7 @@ These are already documented and tracked — do not burn time re-discovering the
 
 ### Non-Negotiable Rules for This Session
 
-1. **LLM budget: hard cap at $20.** Every LLM call costs money. If the budget is exhausted, stop and report — do not keep spending. Track cost by summing `build.metadata['generation_cost_usd']` and any `response.usage` from your own test helpers.
+1. **LLM budget: hard cap at $7.** Every LLM call costs money. If the budget is exhausted, stop and report — do not keep spending. Track cost by summing `build.metadata['generation_cost_usd']` and any `response.usage` from your own test helpers.
 2. **Never run more than one full end-to-end build per phase.** Builds take 5–15 minutes and cost $0.50–$3 each. One real build per phase is enough to surface integration bugs. If it passes, move on.
 3. **Never modify production code to make a test pass.** If a test reveals a bug, document it in the bug report. Only modify code when explicitly in the "fix" pass at the end.
 4. **Never re-run a phase that passed.** If Phase 2 passed, do not re-run Phase 2 when Phase 5 fails. Report the failure in place.

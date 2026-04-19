@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
+import httpx
 import structlog
 
 from factory.models.deployment import Deployment, DeploymentStatus
@@ -47,5 +48,23 @@ async def activate(deployment: Deployment) -> Deployment:
 
     deployment.status = DeploymentStatus.ACTIVE
     deployment.activated_at = datetime.now(UTC)
+    deployment.recovery_policy = {
+        "health_endpoint": "/api/v1/health",
+        "recovery_endpoint": "/api/v1/runtime/recovery",
+        **dict(deployment.recovery_policy),
+    }
+    recovery_payload: dict[str, object] = {}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{deployment.access_url}/api/v1/runtime/recovery")
+            if response.status_code == 200:
+                recovery_payload = dict(response.json())
+    except httpx.HTTPError:
+        recovery_payload = {}
+    deployment.recovery_state = {
+        "restart_count": int(deployment.recovery_state.get("restart_count", 0)),
+        "last_restarted_at": deployment.recovery_state.get("last_restarted_at"),
+        "last_runtime_recovery": recovery_payload,
+    }
     logger.info("activator_complete", access_url=deployment.access_url)
     return deployment

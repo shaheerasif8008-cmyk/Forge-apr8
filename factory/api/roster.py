@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import subprocess
+from datetime import UTC, datetime
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,8 +74,25 @@ async def restart_employee(
         raise HTTPException(status_code=409, detail="missing_container_id")
 
     subprocess.run(["docker", "start", container_id], capture_output=True, text=True, check=True)
-    healthy = await wait_for_health(f"{deployment.access_url}/health", timeout=60)
-    deployment.status = DeploymentStatus.ACTIVE if healthy else DeploymentStatus.DEGRADED
+    deployment.status = DeploymentStatus.RECOVERING
+    healthy = await wait_for_health(f"{deployment.access_url}/api/v1/health", timeout=60)
+    if healthy:
+        recovery_payload: dict[str, object] = {}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{deployment.access_url}/api/v1/runtime/recovery")
+                if response.status_code == 200:
+                    recovery_payload = dict(response.json())
+        except httpx.HTTPError:
+            recovery_payload = {}
+        recovery_state = dict(deployment.recovery_state)
+        recovery_state["restart_count"] = int(recovery_state.get("restart_count", 0)) + 1
+        recovery_state["last_restarted_at"] = datetime.now(UTC).isoformat()
+        recovery_state["last_runtime_recovery"] = recovery_payload
+        deployment.recovery_state = recovery_state
+        deployment.status = DeploymentStatus.ACTIVE
+    else:
+        deployment.status = DeploymentStatus.DEGRADED
     return await save_deployment(session, deployment)
 
 
