@@ -1,0 +1,13 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: Commission Flow
+    - heading "Run intake, review the design, then queue the build." [level=1] [ref=e5]
+    - generic [ref=e6]:
+      - generic [ref=e7]: 1. Start
+      - generic [ref=e8]: 2. Chat
+      - generic [ref=e9]: 3. Review
+      - generic [ref=e10]: 4. Submit
+    - generic [ref=e11]:
+      - textbox "Client org UUID" [ref=e12]: 00000000-0000-0000-0000-000000000001
+      - textbox "Describe the employee the client wants built." [ref=e13]
+      - button "Start Intake Session" [disabled] [ref=e14]

@@ -60,24 +60,28 @@ async def test_provisioner_dispatches_web_to_railway(sample_org, monkeypatch) ->
 async def test_provisioner_dispatches_server_export(sample_org, tmp_path, monkeypatch) -> None:
     deployment = Deployment(build_id=sample_org.id, org_id=sample_org.id, format=DeploymentFormat.SERVER)
     build = Build(org_id=sample_org.id)
-    build.metadata.update({"build_dir": str(tmp_path), "image_tag": "forge:test"})
-
-    async def fake_store_file(path, build_id, *, artifact_type="artifact"):
-        return str(Path("/tmp") / artifact_type / Path(path).name)
-
-    monkeypatch.setattr(
-        "factory.pipeline.deployer.providers.docker_compose_export.store_file",
-        fake_store_file,
+    build.metadata.update(
+        {
+            "build_dir": str(tmp_path),
+            "runtime_template": "server_compose_bundle",
+            "deployment_bundles": {
+                "server": {
+                    "artifact_path": str(tmp_path / "handoff.zip"),
+                    "runtime_template": "server_compose_bundle",
+                    "bundle_metadata_path": str(tmp_path / "bundle-metadata.json"),
+                    "compose_file": "docker-compose.yml",
+                    "healthcheck_path": "/api/v1/health",
+                }
+            },
+        }
     )
 
     result = await provision(deployment, build)
 
-    deploy_dir = tmp_path / "deploy"
     assert result.status == DeploymentStatus.PENDING_CLIENT_ACTION
-    assert (deploy_dir / "docker-compose.yml").exists()
-    assert (deploy_dir / ".env.example").exists()
-    assert (deploy_dir / "README.md").exists()
-    assert any(artifact.artifact_type == "server_package" for artifact in build.artifacts)
+    assert result.infrastructure["artifact_path"].endswith("handoff.zip")
+    assert result.infrastructure["runtime_template"] == "server_compose_bundle"
+    assert result.infrastructure["handoff_ready"] is True
 
 
 @pytest.mark.anyio

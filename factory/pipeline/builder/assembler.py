@@ -90,13 +90,14 @@ async def assemble(
             "copied_components": copied_components,
             "generated_dir": str(generated_dir),
             "workflow_id": blueprint.workflow_id,
-            "deployment_format": blueprint.deployment_spec.format,
+            "deployment_format": blueprint.deployment_spec.format or requirements.deployment_format,
             "employee_id": str(blueprint.id),
             "employee_name": blueprint.employee_name,
             "employee_role": requirements.role_title or requirements.name,
             "frontend_dir": str(build_dir / "portal" / "employee_app"),
             "enabled_sidebar_panels": _enabled_sidebar_panels(blueprint),
             "desktop_backend_url": blueprint.deployment_spec.hosted_base_url,
+            "runtime_template": config.get("manifest", {}).get("artifact_manifest", {}).get("runtime_template", ""),
         }
     )
     build.logs.append(

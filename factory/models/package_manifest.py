@@ -25,6 +25,7 @@ class ArtifactManifest(BaseModel):
     entrypoint: str = "run.py"
     build_dir: str = ""
     generated_files: list[str] = Field(default_factory=list)
+    runtime_template: str = ""
 
 
 class PackageManifest(BaseModel):

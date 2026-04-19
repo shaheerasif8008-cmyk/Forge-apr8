@@ -1,0 +1,49 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - generic [ref=e7]: Forge Employee
+          - heading "Autonomous AI Employee" [level=1] [ref=e8]
+        - generic [ref=e9]: web
+      - generic [ref=e11]:
+        - textbox "Ask your employee to triage, schedule, draft, or coordinate work..." [ref=e12]
+        - generic [ref=e13]:
+          - generic [ref=e14]: web
+          - button "Send" [ref=e15]
+    - complementary [ref=e16]:
+      - generic [ref=e17]:
+        - generic [ref=e18]:
+          - generic [ref=e19]: Inbox
+          - generic [ref=e20]:
+            - button "Approvals 0" [ref=e21]
+            - button "Briefings 0" [ref=e22]
+            - button "Alerts 0" [ref=e23]
+          - generic [ref=e25]:
+            - img [ref=e26]
+            - paragraph [ref=e30]: No pending approvals — you're all caught up.
+        - generic [ref=e31]:
+          - generic [ref=e32]: Activity
+          - generic [ref=e33]:
+            - button "All" [ref=e34]
+            - button "Decisions" [ref=e35]
+            - button "Communications" [ref=e36]
+            - button "Errors" [ref=e37]
+          - generic [ref=e39]: No activity yet. Completed tasks and decision records will appear here.
+        - generic [ref=e40]:
+          - generic [ref=e41]: Settings
+          - generic [ref=e43]:
+            - generic [ref=e44]: Communication, approval limits, integrations, and org map now live on a dedicated settings route.
+            - link "Open Settings" [ref=e45] [cursor=pointer]:
+              - /url: /settings
+              - img [ref=e46]
+              - text: Open Settings
+        - generic [ref=e49]:
+          - generic [ref=e50]: Memory
+          - link "Open Memory Browser" [ref=e53] [cursor=pointer]:
+            - /url: /memory
+        - generic [ref=e55]: Updates
+        - generic [ref=e56]:
+          - generic [ref=e57]: Metrics
+          - link "Open Metrics Dashboard" [ref=e59] [cursor=pointer]:
+            - /url: /metrics

@@ -7,6 +7,15 @@ from factory.models.package_manifest import ArtifactManifest, IdentityLayers, Pa
 from factory.models.requirements import EmployeeRequirements
 
 
+def select_runtime_template(deployment_format: str) -> str:
+    normalized = deployment_format.strip().lower()
+    if normalized == "server":
+        return "server_compose_bundle"
+    if normalized in {"desktop", "hybrid"}:
+        return "desktop_electron_shell"
+    return "container_service"
+
+
 def build_package_manifest(
     blueprint: EmployeeBlueprint,
     requirements: EmployeeRequirements,
@@ -42,5 +51,6 @@ def build_package_manifest(
         artifact_manifest=ArtifactManifest(
             build_dir=build_dir,
             generated_files=generated_files or [],
+            runtime_template=select_runtime_template(blueprint.deployment_spec.format),
         ),
     )

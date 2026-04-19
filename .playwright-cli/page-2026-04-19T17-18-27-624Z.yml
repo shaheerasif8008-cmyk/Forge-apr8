@@ -1,0 +1,16 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: Forge Factory Portal
+    - heading "Commission, build, deploy, and supervise AI employees." [level=1] [ref=e5]
+    - paragraph [ref=e6]: "This portal is the Layer 1 surface for the generalized Forge factory: analyst intake, blueprint preview, build tracking, deployment oversight, monitoring, and updates."
+    - generic [ref=e7]:
+      - link "Commission Flow" [ref=e8] [cursor=pointer]:
+        - /url: /commission
+      - link "Build Tracker" [ref=e9] [cursor=pointer]:
+        - /url: /builds
+      - link "Roster" [ref=e10] [cursor=pointer]:
+        - /url: /roster
+      - link "Monitoring" [ref=e11] [cursor=pointer]:
+        - /url: /monitoring
+      - link "Updates & Policies" [ref=e12] [cursor=pointer]:
+        - /url: /updates

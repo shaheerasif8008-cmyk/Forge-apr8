@@ -36,3 +36,4 @@ def test_manifest_generator_supports_executive_assistant(sample_org) -> None:
     assert manifest.workflow == "executive_assistant"
     assert manifest.role_title == "Executive Assistant"
     assert "calendar_tool" in manifest.tool_permissions
+    assert manifest.artifact_manifest.runtime_template == "container_service"
