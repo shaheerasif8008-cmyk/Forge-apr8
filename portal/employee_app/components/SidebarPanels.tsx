@@ -12,9 +12,11 @@ import type { MemorySnapshot, UpdateStatus } from "./types";
 
 type Props = {
   apiBase: string;
+  onApprovalsCountChange?: (count: number) => void;
+  onUrgentApproval?: (approval: import("./types").Approval) => void;
 };
 
-export function SidebarPanels({ apiBase }: Props) {
+export function SidebarPanels({ apiBase, onApprovalsCountChange, onUrgentApproval }: Props) {
   const [metrics, setMetrics] = useState<Record<string, unknown>>({});
   const [memory, setMemory] = useState<MemorySnapshot>({});
   const [updates, setUpdates] = useState<UpdateStatus>({});
@@ -35,7 +37,11 @@ export function SidebarPanels({ apiBase }: Props) {
 
   return (
     <div className="flex h-full flex-col gap-4">
-      <InboxPanel apiBase={apiBase} />
+      <InboxPanel
+        apiBase={apiBase}
+        onApprovalsCountChange={onApprovalsCountChange}
+        onUrgentApproval={onUrgentApproval}
+      />
       <ActivityPanel apiBase={apiBase} />
 
       <Panel title="Settings">
@@ -68,6 +74,12 @@ export function SidebarPanels({ apiBase }: Props) {
               </div>
             </div>
           ))}
+          <Link
+            className="inline-flex items-center rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent/90"
+            href="/memory"
+          >
+            Open Memory Browser
+          </Link>
         </div>
       </Panel>
 
@@ -91,6 +103,12 @@ export function SidebarPanels({ apiBase }: Props) {
             </div>
           ))}
         </div>
+        <Link
+          className="mt-3 inline-flex items-center rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-ink/90"
+          href="/metrics"
+        >
+          Open Metrics Dashboard
+        </Link>
       </Panel>
     </div>
   );

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from factory.database import get_db_session
 from factory.models.deployment import Deployment, DeploymentStatus
 from factory.persistence import get_deployment, list_deployments_for_org, save_deployment
+from factory.pipeline.deployer.rollback import rollback
 from factory.pipeline.evaluator.container_runner import wait_for_health
 
 router = APIRouter(prefix="/roster", tags=["roster"])
@@ -73,4 +74,18 @@ async def restart_employee(
     subprocess.run(["docker", "start", container_id], capture_output=True, text=True, check=True)
     healthy = await wait_for_health(f"{deployment.access_url}/health", timeout=60)
     deployment.status = DeploymentStatus.ACTIVE if healthy else DeploymentStatus.DEGRADED
+    return await save_deployment(session, deployment)
+
+
+@router.post("/{deployment_id}/rollback", response_model=Deployment)
+async def rollback_employee(
+    deployment_id: UUID,
+    session: AsyncSession = Depends(get_db_session),
+) -> Deployment:
+    """Roll back a deployment using the deployer rollback flow."""
+    deployment = await get_deployment(session, deployment_id)
+    if deployment is None:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    deployment = await rollback(deployment, session)
     return await save_deployment(session, deployment)

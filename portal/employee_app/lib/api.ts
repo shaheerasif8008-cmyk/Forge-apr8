@@ -6,9 +6,13 @@ import type {
   Approval,
   Briefing,
   EmployeeSettings,
+  KnowledgeDocument,
   MemorySnapshot,
+  MetricsDashboard,
+  OperationalMemoryEntry,
   ReasoningRecord,
   UpdateStatus,
+  WorkingMemoryTask,
 } from "@/components/types";
 
 async function getJson<T>(input: string, init?: RequestInit): Promise<T> {
@@ -139,4 +143,89 @@ export async function fetchMemory(apiBase: string): Promise<MemorySnapshot> {
 
 export async function fetchUpdates(apiBase: string): Promise<UpdateStatus> {
   return getJson<UpdateStatus>(`${apiBase}/api/v1/updates`);
+}
+
+export async function fetchOperationalMemory(
+  apiBase: string,
+  options: { query?: string; category?: string; limit?: number } = {},
+): Promise<OperationalMemoryEntry[]> {
+  const params = new URLSearchParams();
+  if (options.query) {
+    params.set("query", options.query);
+  }
+  if (options.category) {
+    params.set("category", options.category);
+  }
+  if (options.limit) {
+    params.set("limit", String(options.limit));
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return getJson<OperationalMemoryEntry[]>(`${apiBase}/api/v1/memory/ops${suffix}`);
+}
+
+export async function patchOperationalMemory(
+  apiBase: string,
+  key: string,
+  value: Record<string, unknown>,
+  category = "",
+): Promise<OperationalMemoryEntry> {
+  return getJson<OperationalMemoryEntry>(`${apiBase}/api/v1/memory/ops/${encodeURIComponent(key)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value, category }),
+  });
+}
+
+export async function deleteOperationalMemory(apiBase: string, key: string): Promise<{ deleted: boolean }> {
+  return getJson<{ deleted: boolean }>(`${apiBase}/api/v1/memory/ops/${encodeURIComponent(key)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchKnowledgeDocuments(apiBase: string): Promise<KnowledgeDocument[]> {
+  return getJson<KnowledgeDocument[]>(`${apiBase}/api/v1/memory/kb/documents`);
+}
+
+export async function upsertKnowledgeDocument(
+  apiBase: string,
+  payload: {
+    document_id: string;
+    document: string;
+    title?: string;
+    metadata?: Record<string, unknown>;
+    replace_existing?: boolean;
+  },
+): Promise<KnowledgeDocument> {
+  return getJson<KnowledgeDocument>(`${apiBase}/api/v1/memory/kb/documents`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function uploadDocument(
+  apiBase: string,
+  payload: { file?: File; filePath?: string; metadata?: Record<string, unknown>; replaceExisting?: boolean },
+): Promise<KnowledgeDocument> {
+  const form = new FormData();
+  if (payload.file) {
+    form.append("file", payload.file);
+  }
+  if (payload.filePath) {
+    form.append("file_path", payload.filePath);
+  }
+  form.append("metadata", JSON.stringify(payload.metadata ?? {}));
+  form.append("replace_existing", String(Boolean(payload.replaceExisting)));
+  return getJson<KnowledgeDocument>(`${apiBase}/api/v1/documents/upload`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export async function fetchWorkingMemory(apiBase: string): Promise<WorkingMemoryTask[]> {
+  return getJson<WorkingMemoryTask[]>(`${apiBase}/api/v1/memory/working`);
+}
+
+export async function fetchMetricsDashboard(apiBase: string): Promise<MetricsDashboard> {
+  return getJson<MetricsDashboard>(`${apiBase}/api/v1/metrics/dashboard`);
 }

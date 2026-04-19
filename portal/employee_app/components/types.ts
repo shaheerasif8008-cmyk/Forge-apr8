@@ -38,6 +38,31 @@ export type EmployeeMeta = {
 
 export type MemorySnapshot = Record<string, { key: string; value: Record<string, unknown> }[]>;
 
+export type OperationalMemoryEntry = {
+  key: string;
+  value: Record<string, unknown>;
+  category: string;
+};
+
+export type KnowledgeChunk = {
+  chunk_index: number;
+  content: string;
+};
+
+export type KnowledgeDocument = {
+  document_id: string;
+  title: string;
+  metadata: Record<string, unknown>;
+  chunk_count: number;
+  chunks: KnowledgeChunk[];
+  created_at?: string;
+};
+
+export type WorkingMemoryTask = {
+  task_id: string;
+  values: Record<string, unknown>;
+};
+
 export type UpdateStatus = {
   security?: Record<string, unknown>;
   learning?: Record<string, unknown>;
@@ -145,4 +170,17 @@ export type OrgMapPerson = {
   email: string;
   communication_preference: string;
   relationship: string;
+};
+
+export type MetricsDashboard = {
+  kpis: {
+    tasks_total: number;
+    avg_confidence: number;
+    pending_approvals: number;
+    avg_duration_seconds: number;
+  };
+  tasks_by_day: Array<{ date: string; tasks: number }>;
+  approval_mix: Array<{ name: string; value: number }>;
+  activity_mix: Array<{ name: string; value: number }>;
+  confidence_trend: Array<{ label: string; confidence: number }>;
 };

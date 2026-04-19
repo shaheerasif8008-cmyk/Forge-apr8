@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function CommissionsPage() {
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
@@ -8,6 +10,12 @@ export default function CommissionsPage() {
           The generalized factory supports legal-intake and executive-assistant archetypes through the shared
           commission and build pipeline.
         </p>
+        <Link
+          className="mt-6 inline-flex rounded-full bg-black px-5 py-3 text-sm font-semibold text-white"
+          href="/commission"
+        >
+          Open the 4-step commission flow
+        </Link>
       </div>
     </main>
   );

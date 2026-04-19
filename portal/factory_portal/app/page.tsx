@@ -1,9 +1,9 @@
 import Link from "next/link";
 
 const links = [
-  { href: "/analyst", label: "Analyst Intake" },
-  { href: "/commissions", label: "Commissions" },
-  { href: "/builds", label: "Build Timeline" },
+  { href: "/commission", label: "Commission Flow" },
+  { href: "/builds", label: "Build Tracker" },
+  { href: "/roster", label: "Roster" },
   { href: "/monitoring", label: "Monitoring" },
   { href: "/updates", label: "Updates & Policies" },
 ];

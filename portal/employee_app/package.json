@@ -2,13 +2,17 @@
   "name": "forge-employee-app",
   "version": "0.1.0",
   "private": true,
+  "main": "electron/main.js",
+  "description": "Forge employee app shell for deployed AI employees.",
+  "author": "Cognisia Inc.",
   "scripts": {
     "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "tsc --noEmit",
     "electron:dev": "concurrently \"npm run dev\" \"electron electron/main.js\"",
-    "electron:build": "next build && electron-builder"
+    "electron:build": "node scripts/electron-pack.js",
+    "electron:pack": "node scripts/electron-pack.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
@@ -17,6 +21,7 @@
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-hook-form": "^7.53.2",
+    "recharts": "^2.15.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

@@ -7,12 +7,14 @@ import { ChatInput } from "@/components/ChatInput";
 import { MessageBubble } from "@/components/MessageBubble";
 import { SidebarPanels } from "@/components/SidebarPanels";
 import { StreamingIndicator } from "@/components/StreamingIndicator";
+import type { Approval } from "@/components/types";
 import type { ChatMessage, EmployeeMeta } from "@/components/types";
 
 export default function HomePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [meta, setMeta] = useState<EmployeeMeta | null>(null);
+  const [dropActive, setDropActive] = useState(false);
 
   const conversationId = "default";
   const apiBase = resolveApiBaseUrl();
@@ -31,6 +33,53 @@ export default function HomePage() {
       }
     };
     void load();
+  }, [apiBase]);
+
+  useEffect(() => {
+    const removeDropHandler = window.forge?.onFileDropped?.((path) => {
+      void uploadDroppedDocument(path);
+    });
+
+    let dragDepth = 0;
+    const handleDragEnter = (event: DragEvent) => {
+      event.preventDefault();
+      dragDepth += 1;
+      setDropActive(true);
+    };
+    const handleDragOver = (event: DragEvent) => {
+      event.preventDefault();
+    };
+    const handleDragLeave = (event: DragEvent) => {
+      event.preventDefault();
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) {
+        setDropActive(false);
+      }
+    };
+    const handleDrop = (event: DragEvent) => {
+      event.preventDefault();
+      dragDepth = 0;
+      setDropActive(false);
+      const file = event.dataTransfer?.files?.[0];
+      if (file) {
+        void uploadDroppedDocument(file);
+      }
+    };
+
+    window.addEventListener("dragenter", handleDragEnter);
+    window.addEventListener("dragover", handleDragOver);
+    window.addEventListener("dragleave", handleDragLeave);
+    window.addEventListener("drop", handleDrop);
+
+    return () => {
+      if (typeof removeDropHandler === "function") {
+        removeDropHandler();
+      }
+      window.removeEventListener("dragenter", handleDragEnter);
+      window.removeEventListener("dragover", handleDragOver);
+      window.removeEventListener("dragleave", handleDragLeave);
+      window.removeEventListener("drop", handleDrop);
+    };
   }, [apiBase]);
 
   async function sendMessage(content: string) {
@@ -84,8 +133,41 @@ export default function HomePage() {
     socket.onclose = () => setStreaming(false);
   }
 
+  async function uploadDroppedDocument(file: File | string) {
+    const form = new FormData();
+    if (typeof file === "string") {
+      form.append("file_path", file);
+      form.append("metadata", JSON.stringify({ source: "electron-drop" }));
+    } else {
+      form.append("file", file);
+      form.append("metadata", JSON.stringify({ source: "browser-drop" }));
+    }
+    await fetch(`${apiBase}/api/v1/documents/upload`, {
+      method: "POST",
+      body: form,
+    });
+    void window.forge?.notify?.("Document uploaded", "The document is available in Memory.", "/memory");
+  }
+
+  function handleApprovalsCountChange(count: number) {
+    void window.forge?.setBadgeCount?.(count);
+  }
+
+  function handleUrgentApproval(approval: Approval) {
+    const summary = approval.metadata?.brief?.executive_summary ?? approval.content;
+    void window.forge?.notify?.("Urgent approval pending", summary.slice(0, 140), "/");
+  }
+
   return (
     <main className="min-h-screen px-4 py-6 md:px-8">
+      {dropActive ? (
+        <div className="pointer-events-none fixed inset-0 z-50 grid place-items-center bg-ink/15 backdrop-blur-sm">
+          <div className="rounded-[32px] border border-white/50 bg-white/90 px-8 py-10 text-center shadow-card">
+            <div className="text-xs font-semibold uppercase tracking-[0.26em] text-ink/45">Document Upload</div>
+            <div className="mt-3 font-display text-3xl text-ink">Drop files anywhere to add them to memory.</div>
+          </div>
+        </div>
+      ) : null}
       <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section className="rounded-[34px] border border-ink/10 bg-white/55 p-5 shadow-card backdrop-blur">
           <div className="mb-5 flex items-center justify-between gap-4 border-b border-ink/10 pb-4">
@@ -119,7 +201,11 @@ export default function HomePage() {
         </section>
 
         <aside className="min-h-[70vh]">
-          <SidebarPanels apiBase={apiBase} />
+          <SidebarPanels
+            apiBase={apiBase}
+            onApprovalsCountChange={handleApprovalsCountChange}
+            onUrgentApproval={handleUrgentApproval}
+          />
         </aside>
       </div>
     </main>

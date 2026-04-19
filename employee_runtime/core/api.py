@@ -2,17 +2,29 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Response,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from sqlalchemy import delete, select
 
 import component_library.data.context_assembler  # noqa: F401
+import component_library.data.knowledge_base  # noqa: F401
 import component_library.data.operational_memory  # noqa: F401
 import component_library.data.org_context  # noqa: F401
 import component_library.data.working_memory  # noqa: F401
@@ -28,6 +40,7 @@ import component_library.quality.verification_layer  # noqa: F401
 import component_library.tools.calendar_tool  # noqa: F401
 import component_library.tools.crm_tool  # noqa: F401
 import component_library.tools.email_tool  # noqa: F401
+import component_library.tools.file_storage_tool  # noqa: F401
 import component_library.tools.messaging_tool  # noqa: F401
 import component_library.work.communication_manager  # noqa: F401
 import component_library.work.document_analyzer  # noqa: F401
@@ -46,6 +59,7 @@ from employee_runtime.core.runtime_db import initialize_runtime_database, normal
 from employee_runtime.core.tool_broker import ToolBroker
 from employee_runtime.modules.behavior_manager import BehaviorManager
 from employee_runtime.modules.pulse_engine import DailyLoopRequest, PulseEngine
+from factory.models.orm import KnowledgeChunkRow
 
 
 class TaskRequest(BaseModel):
@@ -92,6 +106,19 @@ class AdaptivePatternPayload(BaseModel):
 class CorrectionPayload(BaseModel):
     message: str
     corrected_output: str = ""
+
+
+class MemoryEntryPayload(BaseModel):
+    value: dict[str, Any] = Field(default_factory=dict)
+    category: str = ""
+
+
+class KnowledgeDocumentPayload(BaseModel):
+    document_id: str
+    document: str
+    title: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    replace_existing: bool = False
 
 
 class EmployeeRuntimeService:
@@ -508,6 +535,265 @@ class EmployeeRuntimeService:
             ]
         return snapshot
 
+    async def list_operational_memory(
+        self,
+        *,
+        query: str = "",
+        category: str = "",
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        operational_memory = self.components.get("operational_memory")
+        if operational_memory is None:
+            return []
+        records = await operational_memory.search(query, category=category or None, limit=limit)
+        return [
+            {
+                "key": str(record.get("key", "")),
+                "value": record.get("value", {}),
+                "category": str(record.get("category", "general")),
+            }
+            for record in records
+        ]
+
+    async def update_operational_memory(
+        self,
+        key: str,
+        value: dict[str, Any],
+        *,
+        category: str = "",
+    ) -> dict[str, Any]:
+        operational_memory = self.components.get("operational_memory")
+        if operational_memory is None:
+            raise RuntimeError("operational_memory_unavailable")
+        existing = await operational_memory.retrieve(key)
+        resolved_category = (
+            category
+            or (str(existing.get("category", "")) if isinstance(existing, dict) else "")
+            or "general"
+        )
+        record = await operational_memory.store(key, value, resolved_category)
+        return {
+            "key": str(record.get("key", key)),
+            "value": record.get("value", value),
+            "category": str(record.get("category", resolved_category)),
+        }
+
+    async def delete_operational_memory(self, key: str) -> dict[str, Any]:
+        operational_memory = self.components.get("operational_memory")
+        if operational_memory is None:
+            raise RuntimeError("operational_memory_unavailable")
+        await operational_memory.delete(key)
+        return {"deleted": True, "key": key}
+
+    async def working_memory_snapshot(self) -> list[dict[str, Any]]:
+        working_memory = self.components.get("working_memory")
+        if working_memory is None or not hasattr(working_memory, "get_all"):
+            return []
+        task_ids: list[str] = []
+        for task_id in self.tasks:
+            if task_id not in task_ids:
+                task_ids.append(task_id)
+        snapshots: list[dict[str, Any]] = []
+        for task_id in reversed(task_ids[-20:]):
+            values = await working_memory.get_all(task_id)
+            if not values:
+                continue
+            snapshots.append({"task_id": task_id, "values": values})
+        return snapshots
+
+    async def list_knowledge_documents(self) -> list[dict[str, Any]]:
+        knowledge_base = self.components.get("knowledge_base")
+        if knowledge_base is None:
+            return []
+
+        chunks: list[dict[str, Any]] = []
+        session_factory = getattr(knowledge_base, "_session_factory", None)
+        tenant_id = str(getattr(knowledge_base, "_tenant_id", ""))
+        if session_factory is None:
+            memory_chunks = getattr(knowledge_base, "_memory_chunks", [])
+            chunks = [
+                {
+                    "document_id": str(chunk.get("document_id", "")),
+                    "chunk_index": int(chunk.get("chunk_index", 0)),
+                    "content": str(chunk.get("content", "")),
+                    "metadata": chunk.get("metadata", {}),
+                }
+                for chunk in memory_chunks
+                if str(chunk.get("tenant_id", "")) == tenant_id
+            ]
+        else:
+            async with session_factory() as session:
+                result = await session.execute(
+                    select(KnowledgeChunkRow)
+                    .where(KnowledgeChunkRow.tenant_id == getattr(knowledge_base, "_tenant_id"))
+                    .order_by(KnowledgeChunkRow.document_id, KnowledgeChunkRow.chunk_index)
+                )
+                rows = result.scalars().all()
+            chunks = [
+                {
+                    "document_id": str(row.document_id),
+                    "chunk_index": row.chunk_index,
+                    "content": row.content,
+                    "metadata": row.chunk_metadata,
+                    "created_at": row.created_at.isoformat(),
+                }
+                for row in rows
+            ]
+
+        grouped: dict[str, dict[str, Any]] = {}
+        for chunk in chunks:
+            document_id = str(chunk.get("document_id", ""))
+            metadata = chunk.get("metadata", {})
+            document = grouped.setdefault(
+                document_id,
+                {
+                    "document_id": document_id,
+                    "title": str(metadata.get("title") or document_id),
+                    "metadata": metadata,
+                    "chunk_count": 0,
+                    "chunks": [],
+                    "created_at": str(chunk.get("created_at", "")),
+                },
+            )
+            document["chunk_count"] += 1
+            document["chunks"].append(
+                {
+                    "chunk_index": int(chunk.get("chunk_index", 0)),
+                    "content": str(chunk.get("content", "")),
+                }
+            )
+            if not document["created_at"] and chunk.get("created_at"):
+                document["created_at"] = str(chunk["created_at"])
+
+        documents = list(grouped.values())
+        documents.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
+        return documents
+
+    async def _clear_knowledge_document(self, document_id: str) -> None:
+        knowledge_base = self.components.get("knowledge_base")
+        if knowledge_base is None:
+            return
+        normalized_id = knowledge_base._coerce_uuid(document_id)  # noqa: SLF001
+        session_factory = getattr(knowledge_base, "_session_factory", None)
+        if session_factory is None:
+            memory_chunks = getattr(knowledge_base, "_memory_chunks", [])
+            knowledge_base._memory_chunks = [  # noqa: SLF001
+                chunk
+                for chunk in memory_chunks
+                if not (
+                    str(chunk.get("tenant_id", "")) == str(getattr(knowledge_base, "_tenant_id", ""))
+                    and str(chunk.get("document_id", "")) == str(normalized_id)
+                )
+            ]
+            return
+
+        async with session_factory() as session:
+            await session.execute(
+                delete(KnowledgeChunkRow).where(
+                    KnowledgeChunkRow.tenant_id == getattr(knowledge_base, "_tenant_id"),
+                    KnowledgeChunkRow.document_id == normalized_id,
+                )
+            )
+            await session.commit()
+
+    async def upsert_knowledge_document(
+        self,
+        *,
+        document_id: str,
+        document: str,
+        title: str = "",
+        metadata: dict[str, Any] | None = None,
+        replace_existing: bool = False,
+    ) -> dict[str, Any]:
+        knowledge_base = self.components.get("knowledge_base")
+        if knowledge_base is None:
+            raise RuntimeError("knowledge_base_unavailable")
+
+        payload_metadata = dict(metadata or {})
+        if title:
+            payload_metadata.setdefault("title", title)
+        if replace_existing:
+            await self._clear_knowledge_document(document_id)
+
+        await knowledge_base.ingest(
+            document_id=document_id,
+            document=document,
+            metadata=payload_metadata,
+        )
+        normalized_id = str(knowledge_base._coerce_uuid(document_id))  # noqa: SLF001
+        documents = await self.list_knowledge_documents()
+        return next(
+            (item for item in documents if item["document_id"] == normalized_id),
+            {
+                "document_id": normalized_id,
+                "title": title or normalized_id,
+                "metadata": payload_metadata,
+                "chunk_count": 0,
+                "chunks": [],
+                "created_at": "",
+            },
+        )
+
+    async def upload_document(
+        self,
+        *,
+        filename: str,
+        content: bytes | None = None,
+        file_path: str = "",
+        metadata: dict[str, Any] | None = None,
+        replace_existing: bool = False,
+    ) -> dict[str, Any]:
+        if content is None:
+            if not file_path:
+                raise RuntimeError("document_content_missing")
+            content = Path(file_path).read_bytes()
+
+        stored_metadata = dict(metadata or {})
+        stored_metadata.setdefault("title", filename)
+        if file_path:
+            stored_metadata.setdefault("source_path", file_path)
+
+        file_storage = self.components.get("file_storage_tool")
+        storage_result: dict[str, Any] = {}
+        if file_storage is not None:
+            storage_result = await file_storage.invoke(
+                "upload",
+                {
+                    "key": f"documents/{filename}",
+                    "content_bytes": content,
+                },
+            )
+            stored_metadata.setdefault("storage_key", storage_result.get("key", ""))
+
+        document_ingestion = self.components.get("document_ingestion")
+        if document_ingestion is not None:
+            extract_payload: dict[str, Any] = {"content": content}
+            if file_path:
+                extract_payload["file_path"] = file_path
+            extracted = await document_ingestion.invoke("extract_text", extract_payload)
+            document_text = str(extracted.get("text", ""))
+        else:
+            document_text = content.decode("utf-8", errors="replace")
+
+        knowledge_base = self.components.get("knowledge_base")
+        if knowledge_base is None:
+            return {
+                "document_id": filename,
+                "title": filename,
+                "metadata": stored_metadata,
+                "chunk_count": 0,
+                "chunks": [],
+            }
+
+        document_id = str(stored_metadata.get("document_id") or filename)
+        return await self.upsert_knowledge_document(
+            document_id=document_id,
+            document=document_text,
+            title=filename,
+            metadata=stored_metadata,
+            replace_existing=replace_existing,
+        )
+
     async def updates_status(self) -> dict[str, Any]:
         learning_enabled = True
         settings = await self.get_settings()
@@ -560,7 +846,7 @@ class EmployeeRuntimeService:
     async def get_settings(self) -> dict[str, Any]:
         prefs = await self.components["operational_memory"].list_by_category("preference")
         profile = self._default_settings_profile()
-        stored_profile = next(
+        stored_profile: dict[str, Any] = next(
             (
                 pref["value"]
                 for pref in prefs
@@ -736,6 +1022,64 @@ class EmployeeRuntimeService:
             "avg_duration_seconds": 0.0,
         }
 
+    async def metrics_dashboard(self) -> dict[str, Any]:
+        base_metrics = await self.metrics()
+        activity = await self.activity(limit=250)
+        approvals = await self.list_approvals()
+        pending_approvals = len(
+            [item for item in approvals if isinstance(item.get("metadata"), dict) and item["metadata"].get("status") == "pending"]
+        )
+
+        days: list[str] = []
+        task_counts: dict[str, int] = {}
+        confidence_points: list[dict[str, Any]] = []
+        now = datetime.now(UTC)
+        for offset in range(6, -1, -1):
+            day = (now.date()).fromordinal(now.date().toordinal() - offset)
+            label = day.isoformat()
+            days.append(label)
+            task_counts[label] = 0
+
+        category_counts = {"decision": 0, "communication": 0, "error": 0, "system": 0}
+        for event in activity:
+            event_type = str(event.get("event_type", ""))
+            details = event.get("details", {}) if isinstance(event.get("details"), dict) else {}
+            occurred_at = str(event.get("occurred_at", ""))
+            date_label = occurred_at[:10]
+            if event_type == "task_completed" and date_label in task_counts:
+                task_counts[date_label] += 1
+            if event_type == "approval_decided":
+                category_counts["decision"] += 1
+            elif "message" in event_type or "briefing" in event_type or "communication" in event_type:
+                category_counts["communication"] += 1
+            elif "error" in event_type or "failed" in event_type:
+                category_counts["error"] += 1
+            else:
+                category_counts["system"] += 1
+            if event_type == "output_produced" and "confidence" in details:
+                confidence_points.append(
+                    {
+                        "label": occurred_at or f"output-{len(confidence_points) + 1}",
+                        "confidence": float(details.get("confidence", 0.0)),
+                    }
+                )
+
+        return {
+            "kpis": {
+                "tasks_total": base_metrics["tasks_total"],
+                "avg_confidence": base_metrics["avg_confidence"],
+                "pending_approvals": pending_approvals,
+                "avg_duration_seconds": base_metrics["avg_duration_seconds"],
+            },
+            "tasks_by_day": [{"date": label, "tasks": task_counts[label]} for label in days],
+            "approval_mix": [
+                {"name": decision, "value": int(count)}
+                for decision, count in dict(base_metrics.get("approval_mix", {})).items()
+            ],
+            "activity_mix": [{"name": name, "value": value} for name, value in category_counts.items()],
+            "confidence_trend": confidence_points[-12:],
+        }
+
     async def meta(self) -> dict[str, Any]:
         return {
             "employee_name": self.config["employee_name"],
@@ -906,6 +1250,46 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
         await ensure_ready()
         return await service.memory_snapshot()
 
+    @app.get("/api/v1/memory/ops")
+    async def get_operational_memory(
+        query: str = "",
+        category: str = "",
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        await ensure_ready()
+        return await service.list_operational_memory(query=query, category=category, limit=limit)
+
+    @app.patch("/api/v1/memory/ops/{key:path}")
+    async def patch_operational_memory(key: str, payload: MemoryEntryPayload) -> dict[str, Any]:
+        await ensure_ready()
+        return await service.update_operational_memory(key, payload.value, category=payload.category)
+
+    @app.delete("/api/v1/memory/ops/{key:path}")
+    async def delete_operational_memory(key: str) -> dict[str, Any]:
+        await ensure_ready()
+        return await service.delete_operational_memory(key)
+
+    @app.get("/api/v1/memory/working")
+    async def get_working_memory() -> list[dict[str, Any]]:
+        await ensure_ready()
+        return await service.working_memory_snapshot()
+
+    @app.get("/api/v1/memory/kb/documents")
+    async def get_knowledge_documents() -> list[dict[str, Any]]:
+        await ensure_ready()
+        return await service.list_knowledge_documents()
+
+    @app.post("/api/v1/memory/kb/documents")
+    async def upsert_knowledge_document(payload: KnowledgeDocumentPayload) -> dict[str, Any]:
+        await ensure_ready()
+        return await service.upsert_knowledge_document(
+            document_id=payload.document_id,
+            document=payload.document,
+            title=payload.title,
+            metadata=payload.metadata,
+            replace_existing=payload.replace_existing,
+        )
+
     @app.get("/api/v1/updates")
     async def get_updates() -> dict[str, Any]:
         await ensure_ready()
@@ -998,6 +1382,32 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
     async def get_metrics() -> dict[str, Any]:
         await ensure_ready()
         return await service.metrics()
+
+    @app.get("/api/v1/metrics/dashboard")
+    async def get_metrics_dashboard() -> dict[str, Any]:
+        await ensure_ready()
+        return await service.metrics_dashboard()
+
+    @app.post("/api/v1/documents/upload")
+    async def upload_document(
+        file: UploadFile | None = File(default=None),
+        file_path: str = Form(default=""),
+        metadata: str = Form(default="{}"),
+        replace_existing: bool = Form(default=False),
+    ) -> dict[str, Any]:
+        await ensure_ready()
+        parsed_metadata = json.loads(metadata) if metadata else {}
+        content = await file.read() if file is not None else None
+        filename = file.filename if file is not None else Path(file_path).name
+        if not filename:
+            raise HTTPException(status_code=400, detail="document_missing")
+        return await service.upload_document(
+            filename=filename,
+            content=content,
+            file_path=file_path,
+            metadata=parsed_metadata,
+            replace_existing=replace_existing,
+        )
 
     @app.post("/api/v1/autonomy/daily-loop")
     async def run_daily_loop(request: DailyLoopRequest) -> dict[str, Any]:

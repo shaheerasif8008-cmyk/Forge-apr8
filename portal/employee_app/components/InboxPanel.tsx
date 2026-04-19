@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { fetchAlerts, fetchApprovals, fetchBriefings, fetchReasoningRecords, resolveApproval } from "@/lib/api";
 
@@ -11,16 +11,19 @@ import type { AlertItem, Approval, Briefing } from "./types";
 
 type Props = {
   apiBase: string;
+  onApprovalsCountChange?: (count: number) => void;
+  onUrgentApproval?: (approval: Approval) => void;
 };
 
 type TabId = "approvals" | "briefings" | "alerts";
 
-export function InboxPanel({ apiBase }: Props) {
+export function InboxPanel({ apiBase, onApprovalsCountChange, onUrgentApproval }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>("approvals");
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [briefings, setBriefings] = useState<Briefing[]>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [selectedReasoningId, setSelectedReasoningId] = useState("");
+  const notifiedUrgentIds = useRef<Set<string>>(new Set());
 
   async function loadInbox() {
     const [nextApprovals, nextBriefings, nextAlerts] = await Promise.all([
@@ -28,9 +31,19 @@ export function InboxPanel({ apiBase }: Props) {
       fetchBriefings(apiBase),
       fetchAlerts(apiBase),
     ]);
-    setApprovals(nextApprovals.filter((approval) => approval.metadata?.status === "pending"));
+    const pendingApprovals = nextApprovals.filter((approval) => approval.metadata?.status === "pending");
+    setApprovals(pendingApprovals);
     setBriefings(nextBriefings);
     setAlerts(nextAlerts);
+    onApprovalsCountChange?.(pendingApprovals.length);
+    for (const approval of pendingApprovals) {
+      const urgency = String(approval.metadata?.urgency ?? "").toLowerCase();
+      if (!["urgent", "high", "critical"].includes(urgency) || notifiedUrgentIds.current.has(approval.id)) {
+        continue;
+      }
+      notifiedUrgentIds.current.add(approval.id);
+      onUrgentApproval?.(approval);
+    }
   }
 
   useEffect(() => {
