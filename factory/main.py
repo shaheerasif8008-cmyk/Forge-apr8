@@ -12,6 +12,9 @@ from fastapi.responses import JSONResponse
 from factory.api import api_router
 from factory.config import get_settings
 from factory.database import close_engine, init_db_schema, init_engine
+# Eager-import all ORM/Pydantic models so import-time errors surface at container start,
+# not on first request. Do not remove — this protects against lazy-import regressions.
+from factory.models import client as _client_module  # noqa: F401
 
 logger = structlog.get_logger(__name__)
 

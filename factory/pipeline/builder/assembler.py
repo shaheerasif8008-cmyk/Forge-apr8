@@ -51,7 +51,11 @@ async def assemble(
 
     shutil.copytree(REPO_ROOT / "employee_runtime", build_dir / "employee_runtime")
     (build_dir / "portal").mkdir(parents=True, exist_ok=True)
-    shutil.copytree(REPO_ROOT / "portal" / "employee_app", build_dir / "portal" / "employee_app")
+    shutil.copytree(
+        REPO_ROOT / "portal" / "employee_app",
+        build_dir / "portal" / "employee_app",
+        ignore=shutil.ignore_patterns("dist", "out", "node_modules", ".next", "*.dmg", "*.exe", "*.AppImage"),
+    )
     _write_employee_app_config(blueprint, requirements, build_dir)
     _copy_component_framework(build_dir / "component_library")
 

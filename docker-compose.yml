@@ -43,6 +43,21 @@ services:
       timeout: 5s
       retries: 5
 
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 minioadmin minioadmin
+        mc mb --ignore-existing local/forge-packages
+        mc anonymous set download local/forge-packages || true
+        echo "minio-init complete"
+    restart: "no"
+
   opa:
     image: openpolicyagent/opa:latest-envoy
     command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
@@ -55,6 +70,12 @@ services:
     build:
       context: .
       target: factory
+    command:
+      - /bin/sh
+      - -c
+      - |
+        socat TCP-LISTEN:5432,fork,reuseaddr TCP:postgres:5432 &
+        exec uvicorn factory.main:app --host 0.0.0.0 --port 8000
     environment:
       ENVIRONMENT: development
       DATABASE_URL: postgresql+asyncpg://forge:forge@postgres:5432/forge
@@ -77,6 +98,8 @@ services:
       FACTORY_JWT_SECRET: ${FACTORY_JWT_SECRET:-forge-factory-dev-secret}
     ports:
       - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,6 +131,8 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
       FACTORY_JWT_SECRET: ${FACTORY_JWT_SECRET:-forge-factory-dev-secret}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       factory:
         condition: service_healthy

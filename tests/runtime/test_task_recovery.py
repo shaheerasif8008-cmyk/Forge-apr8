@@ -81,7 +81,7 @@ def _write_requirements(build_dir: Path) -> None:
         "PyJWT==2.12.1",
         "langgraph==1.1.8",
         "instructor==1.15.1",
-        "litellm==1.83.10",
+        "litellm==1.82.5",
         "sqlalchemy==2.0.49",
         "alembic==1.18.4",
         "asyncpg==0.31.0",

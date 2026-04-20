@@ -15,5 +15,14 @@ deny_conflict contains msg if {
   msg := sprintf("Conflict of interest detected: %s", [entity])
 }
 
-violations := [v | v := deny_legal_advice[_]] ++ [v | v := deny_conflict[_]]
-allow := count(violations) == 0
+violations contains v if {
+  v := deny_legal_advice[_]
+}
+
+violations contains v if {
+  v := deny_conflict[_]
+}
+
+allow if {
+  count(violations) == 0
+}

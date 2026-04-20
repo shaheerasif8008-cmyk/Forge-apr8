@@ -47,3 +47,8 @@ out/
 # Electron build output
 portal/employee_app/dist-electron/
 portal/employee_app/release/
+# Frontend build output (explicit — supersedes the global dist/ rule which was ignored when files were force-added)
+portal/employee_app/dist/
+portal/employee_app/out/
+portal/factory_portal/.next/
+portal/factory_portal/out/
