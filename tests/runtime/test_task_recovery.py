@@ -33,11 +33,15 @@ CONTAINER_DATABASE_URL = "postgresql+asyncpg://forge:forge@host.docker.internal:
 
 
 def _docker_available() -> bool:
-    result = subprocess.run(
-        ["docker", "version"],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["docker", "version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return False
     return result.returncode == 0
 
 
