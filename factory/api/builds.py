@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from factory.auth import FactoryAuthContext, ensure_org_access, get_factory_auth
 from factory.database import get_db_session, get_session_factory, init_engine
 from factory.models.build import Build, BuildLog, BuildStatus
-from factory.persistence import get_build, get_requirements, save_build
+from factory.persistence import get_build, get_requirements, list_builds_for_org, save_build
 from factory.workers.pipeline_worker import resume_deployment_task, run_pipeline
 
 router = APIRouter(prefix="/builds", tags=["builds"])
@@ -34,6 +34,16 @@ def _ensure_session_factory():
     except RuntimeError:
         init_engine()
         return get_session_factory()
+
+
+@router.get("", response_model=list[Build])
+async def list_builds(
+    org_id: UUID,
+    session: AsyncSession = Depends(get_db_session),
+    auth: FactoryAuthContext = Depends(get_factory_auth),
+) -> list[Build]:
+    ensure_org_access(auth, org_id)
+    return await list_builds_for_org(session, org_id)
 
 
 @router.get("/{build_id}", response_model=Build)

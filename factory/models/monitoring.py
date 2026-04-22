@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 class EventSeverity(str, Enum):
@@ -25,7 +29,7 @@ class MonitoringEvent(BaseModel):
     title: str
     detail: dict[str, object] = Field(default_factory=dict)
     resolved: bool = False
-    occurred_at: datetime = Field(default_factory=datetime.utcnow)
+    occurred_at: datetime = Field(default_factory=utc_now)
 
 
 class PerformanceMetric(BaseModel):
@@ -36,4 +40,4 @@ class PerformanceMetric(BaseModel):
     value: float
     unit: str = ""
     window_minutes: int = 60
-    recorded_at: datetime = Field(default_factory=datetime.utcnow)
+    recorded_at: datetime = Field(default_factory=utc_now)

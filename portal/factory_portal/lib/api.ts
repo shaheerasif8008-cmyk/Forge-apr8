@@ -32,6 +32,24 @@ export type Build = {
   completed_at?: string | null;
 };
 
+export type ClientOrg = {
+  id: string;
+  name: string;
+  slug: string;
+  industry: string;
+  tier: string;
+  contact_email: string;
+  created_at: string;
+};
+
+export type FactoryContext = {
+  subject: string;
+  roles: string[];
+  org_ids: string[];
+  default_org_id?: string | null;
+  orgs: ClientOrg[];
+};
+
 export type Deployment = {
   id: string;
   build_id: string;
@@ -110,6 +128,10 @@ export async function startAnalystSession(orgId: string, prompt: string): Promis
   });
 }
 
+export async function fetchFactoryContext(): Promise<FactoryContext> {
+  return getJson<FactoryContext>(`${resolveFactoryApiBaseUrl()}/api/v1/context`);
+}
+
 export async function sendAnalystMessage(sessionId: string, content: string): Promise<AnalystSessionResponse> {
   return getJson<AnalystSessionResponse>(`${resolveFactoryApiBaseUrl()}/api/v1/analyst/sessions/${sessionId}/messages`, {
     method: "POST",
@@ -137,6 +159,10 @@ export async function commissionFromSession(sessionId: string, orgId: string): P
     `${resolveFactoryApiBaseUrl()}/api/v1/analyst/sessions/${sessionId}/commission?org_id=${encodeURIComponent(orgId)}`,
     { method: "POST" },
   );
+}
+
+export async function fetchBuilds(orgId: string): Promise<Build[]> {
+  return getJson<Build[]>(`${resolveFactoryApiBaseUrl()}/api/v1/builds?org_id=${encodeURIComponent(orgId)}`);
 }
 
 export async function fetchBuild(buildId: string): Promise<Build> {

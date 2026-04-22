@@ -1,26 +1,48 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
   commissionFromSession,
+  fetchFactoryContext,
   fetchRequirements,
   previewBlueprint,
   sendAnalystMessage,
   startAnalystSession,
   type AnalystSessionResponse,
+  type ClientOrg,
 } from "@/lib/api";
 
 export default function CommissionPage() {
   const router = useRouter();
-  const [orgId, setOrgId] = useState("00000000-0000-0000-0000-000000000001");
+  const [orgId, setOrgId] = useState("");
+  const [orgs, setOrgs] = useState<ClientOrg[]>([]);
   const [initialPrompt, setInitialPrompt] = useState("");
   const [session, setSession] = useState<AnalystSessionResponse | null>(null);
   const [draftReply, setDraftReply] = useState("");
   const [requirements, setRequirements] = useState<Record<string, unknown> | null>(null);
   const [blueprint, setBlueprint] = useState<Record<string, unknown> | null>(null);
   const [step, setStep] = useState(1);
+  const [loadingContext, setLoadingContext] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadContext() {
+      const context = await fetchFactoryContext();
+      if (cancelled) {
+        return;
+      }
+      setOrgs(context.orgs);
+      const preferredOrgId = context.default_org_id || context.orgs[0]?.id || "";
+      setOrgId(preferredOrgId);
+      setLoadingContext(false);
+    }
+    void loadContext();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function beginIntake() {
     const created = await startAnalystSession(orgId, initialPrompt);
@@ -78,12 +100,22 @@ export default function CommissionPage() {
 
         {step === 1 ? (
           <section className="mt-8 grid gap-4">
-            <input
-              className="rounded-[22px] border border-black/10 bg-stone-50 px-4 py-3"
-              onChange={(event) => setOrgId(event.target.value)}
-              placeholder="Client org UUID"
-              value={orgId}
-            />
+            <label className="grid gap-2">
+              <span className="text-sm font-medium text-black/70">Organization</span>
+              <select
+                className="rounded-[22px] border border-black/10 bg-stone-50 px-4 py-3"
+                disabled={loadingContext || !orgs.length}
+                onChange={(event) => setOrgId(event.target.value)}
+                value={orgId}
+              >
+                {orgs.length ? null : <option value="">No accessible organizations found</option>}
+                {orgs.map((org) => (
+                  <option key={org.id} value={org.id}>
+                    {org.name} ({org.slug})
+                  </option>
+                ))}
+              </select>
+            </label>
             <textarea
               className="min-h-40 rounded-[22px] border border-black/10 bg-stone-50 px-4 py-3"
               onChange={(event) => setInitialPrompt(event.target.value)}
@@ -92,7 +124,7 @@ export default function CommissionPage() {
             />
             <button
               className="w-fit rounded-full bg-black px-5 py-3 text-sm font-semibold text-white"
-              disabled={!initialPrompt.trim()}
+              disabled={!initialPrompt.trim() || !orgId || loadingContext}
               onClick={() => void beginIntake()}
               type="button"
             >

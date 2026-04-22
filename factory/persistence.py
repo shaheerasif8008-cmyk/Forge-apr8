@@ -11,11 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from factory.models.blueprint import EmployeeBlueprint
 from factory.models.build import Build
+from factory.models.client import ClientOrg
 from factory.models.deployment import Deployment
 from factory.models.monitoring import MonitoringEvent, PerformanceMetric
 from factory.models.orm import (
     BlueprintRow,
     BuildRow,
+    ClientOrgRow,
     DeploymentRow,
     EmployeeRequirementsRow,
     MonitoringEventRow,
@@ -160,6 +162,20 @@ def deployment_from_row(row: DeploymentRow) -> Deployment:
     )
 
 
+def client_org_from_row(row: ClientOrgRow) -> ClientOrg:
+    return ClientOrg.model_validate(
+        {
+            "id": row.id,
+            "name": row.name,
+            "slug": row.slug,
+            "industry": row.industry,
+            "tier": row.tier,
+            "contact_email": row.contact_email,
+            "created_at": row.created_at,
+        }
+    )
+
+
 async def save_requirements(session: AsyncSession, requirements: EmployeeRequirements) -> EmployeeRequirements:
     row = await session.get(EmployeeRequirementsRow, requirements.id)
     payload = requirements_to_row_payload(requirements)
@@ -228,6 +244,16 @@ async def get_deployment(session: AsyncSession, deployment_id: UUID) -> Deployme
     return None if row is None else deployment_from_row(row)
 
 
+async def list_client_orgs(session: AsyncSession, org_ids: Iterable[UUID]) -> list[ClientOrg]:
+    normalized_ids = list(dict.fromkeys(org_ids))
+    if not normalized_ids:
+        return []
+    statement = select(ClientOrgRow).where(ClientOrgRow.id.in_(normalized_ids))
+    rows = (await session.execute(statement)).scalars().all()
+    rows_by_id = {row.id: row for row in rows}
+    return [client_org_from_row(rows_by_id[org_id]) for org_id in normalized_ids if org_id in rows_by_id]
+
+
 async def get_deployment_for_build(session: AsyncSession, build_id: UUID) -> Deployment | None:
     statement = select(DeploymentRow).where(DeploymentRow.build_id == build_id)
     row = (await session.execute(statement)).scalar_one_or_none()
@@ -256,6 +282,16 @@ async def list_deployments_for_org(session: AsyncSession, org_id: UUID) -> list[
     )
     rows = (await session.execute(statement)).scalars().all()
     return [deployment_from_row(row) for row in rows]
+
+
+async def list_builds_for_org(session: AsyncSession, org_id: UUID) -> list[Build]:
+    statement = (
+        select(BuildRow)
+        .where(BuildRow.org_id == org_id)
+        .order_by(desc(BuildRow.created_at))
+    )
+    rows = (await session.execute(statement)).scalars().all()
+    return [build_from_row(row) for row in rows]
 
 
 async def list_active_deployments(session: AsyncSession) -> list[Deployment]:

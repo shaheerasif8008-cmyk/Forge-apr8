@@ -147,3 +147,24 @@ async def test_retry_build_rejects_non_failed_status(client, sample_requirements
 
     assert response.status_code == 409
     assert response.json()["detail"] == "build_not_retryable"
+
+
+@pytest.mark.anyio
+async def test_list_builds_for_org(client, sample_build, monkeypatch) -> None:
+    async def fake_db():
+        yield object()
+
+    async def fake_list(session, org_id):
+        assert org_id == sample_build.org_id
+        return [sample_build]
+
+    app.dependency_overrides[get_db_session] = fake_db
+    monkeypatch.setattr("factory.api.builds.list_builds_for_org", fake_list)
+
+    response = await client.get(f"/api/v1/builds?org_id={sample_build.org_id}")
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["id"] == str(sample_build.id)

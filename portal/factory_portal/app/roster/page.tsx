@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
-import { fetchRoster } from "@/lib/api";
+import { fetchFactoryContext, fetchRoster, type ClientOrg } from "@/lib/api";
 
 type Deployment = {
   id: string;
@@ -14,10 +14,36 @@ type Deployment = {
 };
 
 export default function RosterPage() {
-  const [orgId, setOrgId] = useState("00000000-0000-0000-0000-000000000001");
+  const [orgId, setOrgId] = useState("");
+  const [orgs, setOrgs] = useState<ClientOrg[]>([]);
   const [deployments, setDeployments] = useState<Deployment[]>([]);
+  const [loadingContext, setLoadingContext] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadContext() {
+      const context = await fetchFactoryContext();
+      if (cancelled) {
+        return;
+      }
+      setOrgs(context.orgs);
+      const preferredOrgId = context.default_org_id || context.orgs[0]?.id || "";
+      setOrgId(preferredOrgId);
+      setLoadingContext(false);
+      if (preferredOrgId) {
+        setDeployments((await fetchRoster(preferredOrgId)) as Deployment[]);
+      }
+    }
+    void loadContext();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function loadRoster() {
+    if (!orgId) {
+      return;
+    }
     setDeployments((await fetchRoster(orgId)) as Deployment[]);
   }
 
@@ -28,14 +54,22 @@ export default function RosterPage() {
         <h1 className="mt-3 text-5xl font-semibold">See every deployed employee for an organization.</h1>
 
         <div className="mt-6 flex flex-wrap gap-3">
-          <input
+          <select
             className="min-w-[320px] rounded-full border border-black/10 bg-stone-50 px-4 py-3"
+            disabled={loadingContext || !orgs.length}
             onChange={(event) => setOrgId(event.target.value)}
-            placeholder="Client org UUID"
             value={orgId}
-          />
+          >
+            {orgs.length ? null : <option value="">No accessible organizations found</option>}
+            {orgs.map((org) => (
+              <option key={org.id} value={org.id}>
+                {org.name} ({org.slug})
+              </option>
+            ))}
+          </select>
           <button
             className="rounded-full bg-black px-5 py-3 text-sm font-semibold text-white"
+            disabled={!orgId || loadingContext}
             onClick={() => void loadRoster()}
             type="button"
           >
@@ -60,7 +94,7 @@ export default function RosterPage() {
           ))}
           {!deployments.length ? (
             <div className="rounded-[24px] bg-stone-100 p-8 text-center text-black/55">
-              No roster loaded yet. Enter an org ID to fetch deployments.
+              No deployments found for the selected organization.
             </div>
           ) : null}
         </div>

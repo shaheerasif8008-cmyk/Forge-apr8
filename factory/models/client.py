@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
@@ -14,6 +14,10 @@ class SubscriptionTier(str, Enum):
     PRO = "pro"
 
 
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
 class ClientOrg(BaseModel):
     """A Forge client organisation."""
 
@@ -23,7 +27,7 @@ class ClientOrg(BaseModel):
     industry: str = ""
     tier: SubscriptionTier = SubscriptionTier.ENTERPRISE
     contact_email: EmailStr
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class Client(BaseModel):
@@ -34,4 +38,4 @@ class Client(BaseModel):
     email: EmailStr
     name: str
     role: str = "owner"
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)

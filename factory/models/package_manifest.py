@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 from factory.models.blueprint import DeploymentSpec, MonitoringPolicy, SelectedComponent, UIProfile
 from factory.models.requirements import EmployeeArchetype
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 class IdentityLayers(BaseModel):
@@ -47,4 +51,4 @@ class PackageManifest(BaseModel):
     org_map: list[dict[str, object]] = Field(default_factory=list)
     authority_matrix: dict[str, str] = Field(default_factory=dict)
     artifact_manifest: ArtifactManifest = Field(default_factory=ArtifactManifest)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)

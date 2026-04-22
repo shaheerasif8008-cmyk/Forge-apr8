@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 class BuildStatus(str, Enum):
@@ -24,7 +28,7 @@ class BuildStatus(str, Enum):
 
 
 class BuildLog(BaseModel):
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)
     stage: str
     level: str = "info"
     message: str
@@ -37,7 +41,7 @@ class BuildArtifact(BaseModel):
     )
     location: str = Field(description="S3 URI or container registry tag")
     checksum: str = ""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class Build(BaseModel):
@@ -53,5 +57,5 @@ class Build(BaseModel):
     artifacts: list[BuildArtifact] = Field(default_factory=list)
     test_report: dict[str, object] = Field(default_factory=dict)
     metadata: dict[str, object] = Field(default_factory=dict)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
     completed_at: datetime | None = None

@@ -11,7 +11,7 @@ Every tool invocation MUST go through this broker. It:
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -23,13 +23,17 @@ from component_library.quality.schemas import ProposedAction
 logger = structlog.get_logger(__name__)
 
 
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
 class ToolCall(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     employee_id: str
     tool_id: str
     action: str
     parameters: dict[str, object] = Field(default_factory=dict)
-    called_at: datetime = Field(default_factory=datetime.utcnow)
+    called_at: datetime = Field(default_factory=utc_now)
 
 
 class ToolResult(BaseModel):
@@ -37,7 +41,7 @@ class ToolResult(BaseModel):
     success: bool
     data: dict[str, object] = Field(default_factory=dict)
     error: str = ""
-    completed_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: datetime = Field(default_factory=utc_now)
 
 
 class ToolBroker:

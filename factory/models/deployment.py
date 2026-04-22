@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 class DeploymentFormat(str, Enum):
@@ -58,5 +62,5 @@ class Deployment(BaseModel):
     )
     recovery_state: dict[str, object] = Field(default_factory=dict)
     health_last_checked: datetime | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
     activated_at: datetime | None = None

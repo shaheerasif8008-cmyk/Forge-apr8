@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 class LegalIntakeInput(BaseModel):
@@ -75,7 +79,7 @@ class IntakeBrief(BaseModel):
     recommended_practice_area: str = ""
     next_steps: list[str] = Field(default_factory=list)
     flags: list[str] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class InputProtectionResult(BaseModel):

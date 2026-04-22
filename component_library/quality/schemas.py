@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 class ProposedAction(BaseModel):
@@ -67,7 +71,7 @@ class ReasoningRecord(BaseModel):
     modules_invoked: list[str] = Field(default_factory=list)
     token_cost: int = 0
     latency_ms: int = 0
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class PolicyDecision(BaseModel):

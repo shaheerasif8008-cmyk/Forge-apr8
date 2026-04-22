@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, model_validator
 
 from factory.models.requirements import EmployeeArchetype
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 class SelectedComponent(BaseModel):
@@ -164,4 +168,4 @@ class EmployeeBlueprint(BaseModel):
     ui_profile: UIProfile = Field(default_factory=UIProfile)
     estimated_cost_per_task_usd: float | None = None
     architect_reasoning: str = Field("")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)

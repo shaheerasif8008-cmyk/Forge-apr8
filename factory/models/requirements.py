@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 class EmployeeArchetype(str, Enum):
@@ -104,4 +108,4 @@ class EmployeeRequirements(BaseModel):
     monitoring_preferences: MonitoringPreferences = Field(default_factory=MonitoringPreferences)
     update_preferences: UpdatePreferences = Field(default_factory=UpdatePreferences)
     raw_intake: str = Field("", description="Original client description (preserved for audit)")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
