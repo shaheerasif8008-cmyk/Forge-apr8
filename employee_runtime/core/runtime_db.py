@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from factory.models.orm import Base, ClientOrgRow
+from employee_runtime.shared.orm import Base, ClientOrgRow
 
 
 def normalize_org_uuid(raw_org_id: str) -> str:

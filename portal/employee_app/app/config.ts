@@ -5,6 +5,7 @@ export type EmployeeAppConfig = {
   enabledSidebarPanels: string[];
   apiBaseUrl: string;
   wsBaseUrl: string;
+  apiToken: string;
   deploymentFormat: string;
 };
 
@@ -15,6 +16,7 @@ export const employeeAppConfig: EmployeeAppConfig = {
   enabledSidebarPanels: ["inbox", "activity", "documents", "memory", "settings", "updates", "metrics"],
   apiBaseUrl: "",
   wsBaseUrl: "",
+  apiToken: "",
   deploymentFormat: "web",
 };
 

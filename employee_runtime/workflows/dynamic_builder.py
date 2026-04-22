@@ -22,7 +22,7 @@ from component_library.work.schemas import (
     VerificationInput,
 )
 from employee_runtime.core.state import EmployeeState
-from factory.observability.langfuse_client import get_langfuse_client
+from employee_runtime.shared.observability import get_langfuse_client
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 STATE_KEYS = set(EmployeeState.__annotations__)

@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from component_library.interfaces import ComponentHealth, DataSource
 from component_library.models.litellm_router import LitellmRouter
 from component_library.registry import register
-from factory.config import get_settings
-from factory.models.orm import KnowledgeChunkRow
+from employee_runtime.shared.orm import KnowledgeChunkRow
+from employee_runtime.shared.settings import get_settings
 
 logger = structlog.get_logger(__name__)
 

@@ -10,6 +10,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from factory.auth import FactoryAuthContext, ensure_org_access, get_factory_auth
 from factory.database import get_db_session
 from factory.models.deployment import Deployment, DeploymentStatus
 from factory.persistence import get_deployment, list_deployments_for_org, save_deployment
@@ -23,8 +24,10 @@ router = APIRouter(prefix="/roster", tags=["roster"])
 async def list_employees(
     org_id: UUID,
     session: AsyncSession = Depends(get_db_session),
+    auth: FactoryAuthContext = Depends(get_factory_auth),
 ) -> list[Deployment]:
     """Return all deployments for an org."""
+    ensure_org_access(auth, org_id)
     return await list_deployments_for_org(session, org_id)
 
 
@@ -32,11 +35,13 @@ async def list_employees(
 async def get_employee(
     deployment_id: UUID,
     session: AsyncSession = Depends(get_db_session),
+    auth: FactoryAuthContext = Depends(get_factory_auth),
 ) -> Deployment:
     """Return deployment details for a single employee."""
     deployment = await get_deployment(session, deployment_id)
     if deployment is None:
         raise HTTPException(status_code=404, detail="not_found")
+    ensure_org_access(auth, deployment.org_id)
     return deployment
 
 
@@ -44,11 +49,13 @@ async def get_employee(
 async def stop_employee(
     deployment_id: UUID,
     session: AsyncSession = Depends(get_db_session),
+    auth: FactoryAuthContext = Depends(get_factory_auth),
 ) -> Deployment:
     """Stop a deployed employee container."""
     deployment = await get_deployment(session, deployment_id)
     if deployment is None:
         raise HTTPException(status_code=404, detail="not_found")
+    ensure_org_access(auth, deployment.org_id)
 
     container_id = str(deployment.infrastructure.get("container_id", ""))
     if not container_id:
@@ -63,11 +70,13 @@ async def stop_employee(
 async def restart_employee(
     deployment_id: UUID,
     session: AsyncSession = Depends(get_db_session),
+    auth: FactoryAuthContext = Depends(get_factory_auth),
 ) -> Deployment:
     """Restart a deployed employee container and re-check health."""
     deployment = await get_deployment(session, deployment_id)
     if deployment is None:
         raise HTTPException(status_code=404, detail="not_found")
+    ensure_org_access(auth, deployment.org_id)
 
     container_id = str(deployment.infrastructure.get("container_id", ""))
     if not container_id:
@@ -100,11 +109,13 @@ async def restart_employee(
 async def rollback_employee(
     deployment_id: UUID,
     session: AsyncSession = Depends(get_db_session),
+    auth: FactoryAuthContext = Depends(get_factory_auth),
 ) -> Deployment:
     """Roll back a deployment using the deployer rollback flow."""
     deployment = await get_deployment(session, deployment_id)
     if deployment is None:
         raise HTTPException(status_code=404, detail="not_found")
+    ensure_org_access(auth, deployment.org_id)
 
     deployment = await rollback(deployment, session)
     return await save_deployment(session, deployment)

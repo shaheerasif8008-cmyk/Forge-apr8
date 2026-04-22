@@ -1,5 +1,7 @@
 "use client";
 
+import { employeeAppConfig } from "@/app/config";
+
 import type {
   ActivityItem,
   AlertItem,
@@ -16,7 +18,11 @@ import type {
 } from "@/components/types";
 
 async function getJson<T>(input: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init);
+  const headers = new Headers(init?.headers);
+  if (employeeAppConfig.apiToken) {
+    headers.set("Authorization", `Bearer ${employeeAppConfig.apiToken}`);
+  }
+  const response = await fetch(input, { ...init, headers });
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }

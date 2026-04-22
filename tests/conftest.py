@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from factory.auth import create_factory_token
 from factory.main import app
 from factory.models.blueprint import EmployeeBlueprint, SelectedComponent
 from factory.models.build import Build
@@ -20,8 +21,14 @@ def anyio_backend() -> str:
 @pytest.fixture()
 async def client() -> AsyncClient:
     """Async HTTP client pointed at the factory app (no real DB needed)."""
+    token = create_factory_token(
+        subject="pytest-user",
+        org_ids=["00000000-0000-0000-0000-000000000001"],
+    )
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {token}"},
     ) as ac:
         yield ac
 

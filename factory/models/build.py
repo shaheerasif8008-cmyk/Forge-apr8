@@ -16,6 +16,8 @@ class BuildStatus(str, Enum):
     PACKAGING = "packaging"
     EVALUATING = "evaluating"
     PASSED = "passed"
+    PENDING_REVIEW = "pending_review"
+    PENDING_CLIENT_ACTION = "pending_client_action"
     FAILED = "failed"
     DEPLOYING = "deploying"
     DEPLOYED = "deployed"

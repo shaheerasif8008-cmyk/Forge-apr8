@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from factory.database import get_db_session
+from factory.config import get_settings
 from factory.main import app
 from factory.models.build import Build, BuildStatus
 from factory.models.deployment import Deployment, DeploymentStatus, IntegrationStatus
@@ -182,6 +183,7 @@ async def test_pipeline_rolls_back_on_activate_failure(sample_requirements, samp
         calls["rollback"] += 1
         return deployment.model_copy(update={"status": DeploymentStatus.ROLLED_BACK, "access_url": "", "infrastructure": {}})
 
+    monkeypatch.setattr(get_settings(), "human_review_required", False)
     monkeypatch.setattr("factory.workers.pipeline_worker._ensure_session_factory", lambda: fake_session_factory)
     monkeypatch.setattr("factory.workers.pipeline_worker.save_requirements", passthrough_requirements)
     monkeypatch.setattr("factory.workers.pipeline_worker.save_build", passthrough_build)
@@ -202,6 +204,72 @@ async def test_pipeline_rolls_back_on_activate_failure(sample_requirements, samp
 
     assert calls["rollback"] == 1
     assert result.status == BuildStatus.FAILED
+
+
+@pytest.mark.anyio
+async def test_pipeline_marks_server_exports_pending_client_action(sample_requirements, sample_blueprint, monkeypatch) -> None:
+    @asynccontextmanager
+    async def fake_session_factory():
+        class FakeSession:
+            async def commit(self) -> None:
+                return None
+
+        yield FakeSession()
+
+    server_requirements = sample_requirements.model_copy(update={"deployment_format": "server"})
+    server_blueprint = sample_blueprint.model_copy(update={"org_id": server_requirements.org_id})
+
+    async def passthrough_requirements(session, requirements):
+        return requirements
+
+    async def passthrough_build(session, build):
+        return build
+
+    async def passthrough_blueprint(session, blueprint):
+        return blueprint
+
+    async def passthrough_deployment(session, deployment):
+        return deployment
+
+    async def fake_design(requirements):
+        return server_blueprint
+
+    async def fake_assemble(blueprint, requirements, build):
+        return build.model_copy(update={"metadata": {"build_dir": "/tmp/demo"}})
+
+    async def fake_generate(blueprint, build, iteration=1):
+        return build
+
+    async def fake_package(build):
+        return build.model_copy(update={"metadata": {"image_tag": "forge:test", **build.metadata}})
+
+    async def fake_evaluate(build):
+        return build.model_copy(update={"status": BuildStatus.PASSED})
+
+    async def fake_provision(deployment, build):
+        return deployment.model_copy(update={"status": DeploymentStatus.PENDING_CLIENT_ACTION, "access_url": ""})
+
+    async def fake_activate(deployment):
+        raise AssertionError("activate should not run for pending client action deployments")
+
+    monkeypatch.setattr(get_settings(), "human_review_required", False)
+    monkeypatch.setattr("factory.workers.pipeline_worker._ensure_session_factory", lambda: fake_session_factory)
+    monkeypatch.setattr("factory.workers.pipeline_worker.save_requirements", passthrough_requirements)
+    monkeypatch.setattr("factory.workers.pipeline_worker.save_build", passthrough_build)
+    monkeypatch.setattr("factory.workers.pipeline_worker.save_blueprint", passthrough_blueprint)
+    monkeypatch.setattr("factory.workers.pipeline_worker.save_deployment", passthrough_deployment)
+    monkeypatch.setattr("factory.pipeline.architect.designer.design_employee", fake_design)
+    monkeypatch.setattr("factory.pipeline.builder.assembler.assemble", fake_assemble)
+    monkeypatch.setattr("factory.pipeline.builder.generator.generate", fake_generate)
+    monkeypatch.setattr("factory.pipeline.builder.packager.package", fake_package)
+    monkeypatch.setattr("factory.pipeline.evaluator.test_runner.evaluate", fake_evaluate)
+    monkeypatch.setattr("factory.pipeline.deployer.provisioner.provision", fake_provision)
+    monkeypatch.setattr("factory.pipeline.deployer.activator.activate", fake_activate)
+
+    build = Build(requirements_id=server_requirements.id, org_id=server_requirements.org_id)
+    result = await start_pipeline(server_requirements, build)
+
+    assert result.status == BuildStatus.PENDING_CLIENT_ACTION
 
 
 @pytest.mark.anyio

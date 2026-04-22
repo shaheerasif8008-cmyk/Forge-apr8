@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
 from typing import Protocol
 
 import structlog
 
+from factory.config import get_settings
 from factory.models.blueprint import EmployeeBlueprint
 from factory.models.deployment import Deployment, DeploymentStatus, IntegrationStatus
 
@@ -50,15 +52,81 @@ class InMemoryComposioClient:
 
 
 def get_composio_client() -> ComposioConnectionClient:
-    return InMemoryComposioClient()
+    settings = get_settings()
+    if settings.composio_api_key:
+        return ComposioSdkClient(settings.composio_api_key)
+    if settings.environment == "test":
+        return InMemoryComposioClient()
+    raise RuntimeError("Composio API key is required for deployment integrations.")
+
+
+@dataclass(slots=True)
+class ComposioSdkClient:
+    api_key: str
+
+    def _client(self):
+        module = importlib.import_module("composio")
+        client_cls = getattr(module, "Composio", None) or getattr(module, "ComposioToolSet", None)
+        if client_cls is None:
+            raise RuntimeError("Unsupported Composio SDK installation.")
+        try:
+            return client_cls(api_key=self.api_key)
+        except TypeError:
+            return client_cls()
+
+    async def initiate_connection(self, *, deployment_id: str, tool_id: str, provider: str) -> dict[str, str]:
+        client = self._client()
+        if hasattr(client, "connected_accounts") and hasattr(client.connected_accounts, "initiate"):
+            result = client.connected_accounts.initiate(app=provider, entity_id=deployment_id)
+            connection_id = getattr(result, "id", "") or result.get("id", "")
+            oauth_url = getattr(result, "redirect_url", "") or result.get("redirect_url", "")
+            return {"connection_id": str(connection_id), "oauth_url": str(oauth_url)}
+        if hasattr(client, "initiate_connection"):
+            result = client.initiate_connection(app=provider, entity_id=deployment_id)
+            connection_id = getattr(result, "id", "") or result.get("id", "")
+            oauth_url = getattr(result, "redirect_url", "") or result.get("redirect_url", "")
+            return {"connection_id": str(connection_id), "oauth_url": str(oauth_url)}
+        raise RuntimeError("Composio SDK does not expose a supported connection initiation API.")
+
+    async def get_connection_status(self, connection_id: str) -> str:
+        client = self._client()
+        if hasattr(client, "connected_accounts") and hasattr(client.connected_accounts, "get"):
+            result = client.connected_accounts.get(connection_id)
+            return str(getattr(result, "status", "") or result.get("status", "")).lower()
+        if hasattr(client, "get_connection"):
+            result = client.get_connection(connection_id)
+            return str(getattr(result, "status", "") or result.get("status", "")).lower()
+        raise RuntimeError("Composio SDK does not expose a supported status API.")
+
+    async def delete_connection(self, connection_id: str) -> None:
+        client = self._client()
+        if hasattr(client, "connected_accounts") and hasattr(client.connected_accounts, "delete"):
+            client.connected_accounts.delete(connection_id)
+            return
+        if hasattr(client, "delete_connection"):
+            client.delete_connection(connection_id)
+            return
+        raise RuntimeError("Composio SDK does not expose a supported delete API.")
 
 
 class Connector:
     def __init__(self, client: ComposioConnectionClient | None = None) -> None:
-        self._client = client or get_composio_client()
+        self._client = client
+
+    def _resolve_client(self) -> ComposioConnectionClient:
+        if self._client is None:
+            self._client = get_composio_client()
+        return self._client
 
     async def connect(self, deployment: Deployment, blueprint: EmployeeBlueprint) -> Deployment:
-        deployment.status = DeploymentStatus.CONNECTING
+        if deployment.status == DeploymentStatus.PENDING_CLIENT_ACTION:
+            logger.info(
+                "connector_connect_skipped",
+                deployment_id=str(deployment.id),
+                reason="pending_client_action",
+            )
+            return deployment
+
         deployment.integrations = []
 
         tool_ids = [
@@ -68,9 +136,20 @@ class Connector:
             and component.component_id in TOOL_PROVIDER_MAP
         ]
 
+        if not tool_ids:
+            logger.info(
+                "connector_connect_complete",
+                deployment_id=str(deployment.id),
+                integration_count=0,
+            )
+            return deployment
+
+        deployment.status = DeploymentStatus.CONNECTING
+        client = self._resolve_client()
+
         for tool_id in tool_ids:
             provider = TOOL_PROVIDER_MAP[tool_id]
-            connection = await self._client.initiate_connection(
+            connection = await client.initiate_connection(
                 deployment_id=str(deployment.id),
                 tool_id=tool_id,
                 provider=provider,
@@ -93,10 +172,11 @@ class Connector:
         return deployment
 
     async def refresh_statuses(self, deployment: Deployment) -> Deployment:
+        client = self._resolve_client()
         for integration in deployment.integrations:
             if integration.status == "connected" or not integration.composio_connection_id:
                 continue
-            status = await self._client.get_connection_status(integration.composio_connection_id)
+            status = await client.get_connection_status(integration.composio_connection_id)
             if status == "connected":
                 integration.status = "connected"
         return deployment
@@ -121,9 +201,10 @@ class Connector:
         return deployment
 
     async def delete_connections(self, deployment: Deployment) -> None:
+        client = self._resolve_client()
         for integration in deployment.integrations:
             if integration.composio_connection_id:
-                await self._client.delete_connection(integration.composio_connection_id)
+                await client.delete_connection(integration.composio_connection_id)
 
 
 def pending_oauth_urls(deployment: Deployment) -> list[dict[str, str]]:

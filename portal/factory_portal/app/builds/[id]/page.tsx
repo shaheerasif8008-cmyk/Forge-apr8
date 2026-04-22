@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
-import { fetchBuild, resolveFactoryApiBaseUrl, retryBuild } from "@/lib/api";
+import { approveBuild, fetchBuild, rejectBuild, retryBuild } from "@/lib/api";
 
 type BuildLog = {
   timestamp?: string;
@@ -24,24 +24,30 @@ export default function BuildDetailPage() {
     if (!buildId) {
       return;
     }
-    void fetchBuild(buildId).then((build) => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const terminalStatuses = new Set(["failed", "deployed", "pending_review", "pending_client_action"]);
+
+    const poll = async () => {
+      const build = await fetchBuild(buildId);
+      if (cancelled) {
+        return;
+      }
       setStatus(build.status);
       setIteration(build.iteration);
       setLogs((build.logs as BuildLog[]) ?? []);
-    });
+      if (!terminalStatuses.has(build.status)) {
+        timer = setTimeout(() => void poll(), 1000);
+      }
+    };
 
-    const source = new EventSource(`${resolveFactoryApiBaseUrl()}/api/v1/builds/${buildId}/stream`);
-    source.addEventListener("build", (event) => {
-      const payload = JSON.parse((event as MessageEvent).data) as {
-        status: string;
-        iteration: number;
-        logs: BuildLog[];
-      };
-      setStatus(payload.status);
-      setIteration(payload.iteration);
-      setLogs((current) => (current.length === 0 ? payload.logs : [...current, ...payload.logs]));
-    });
-    return () => source.close();
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
   }, [buildId]);
 
   async function handleRetry() {
@@ -49,6 +55,26 @@ export default function BuildDetailPage() {
       return;
     }
     const build = await retryBuild(buildId);
+    setStatus(build.status);
+    setIteration(build.iteration);
+    setLogs((build.logs as BuildLog[]) ?? []);
+  }
+
+  async function handleApprove() {
+    if (!buildId) {
+      return;
+    }
+    const build = await approveBuild(buildId);
+    setStatus(build.status);
+    setIteration(build.iteration);
+    setLogs((build.logs as BuildLog[]) ?? []);
+  }
+
+  async function handleReject() {
+    if (!buildId) {
+      return;
+    }
+    const build = await rejectBuild(buildId);
     setStatus(build.status);
     setIteration(build.iteration);
     setLogs((build.logs as BuildLog[]) ?? []);
@@ -75,6 +101,22 @@ export default function BuildDetailPage() {
 
         <div className="mt-6 flex flex-wrap gap-3">
           <button
+            className="rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white disabled:bg-emerald-300"
+            disabled={status !== "pending_review"}
+            onClick={() => void handleApprove()}
+            type="button"
+          >
+            Approve and Deploy
+          </button>
+          <button
+            className="rounded-full bg-amber-500 px-5 py-3 text-sm font-semibold text-white disabled:bg-amber-200"
+            disabled={status !== "pending_review"}
+            onClick={() => void handleReject()}
+            type="button"
+          >
+            Reject Build
+          </button>
+          <button
             className="rounded-full bg-black px-5 py-3 text-sm font-semibold text-white disabled:bg-black/30"
             disabled={status !== "failed"}
             onClick={() => void handleRetry()}
@@ -83,6 +125,18 @@ export default function BuildDetailPage() {
             Retry Failed Build
           </button>
         </div>
+
+        {status === "pending_review" ? (
+          <div className="mt-4 rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Human review is required before deployment can continue.
+          </div>
+        ) : null}
+
+        {status === "pending_client_action" ? (
+          <div className="mt-4 rounded-[20px] border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+            The build is complete and waiting on client-side setup or activation steps.
+          </div>
+        ) : null}
 
         <div className="mt-6 rounded-[24px] border border-black/10 bg-stone-50 p-5">
           <div className="text-sm font-semibold">Build Logs</div>

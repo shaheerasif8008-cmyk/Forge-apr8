@@ -11,7 +11,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from factory.models.orm import ConversationRow, MessageRow
+from employee_runtime.shared.orm import ConversationRow, MessageRow
 
 
 class ConversationRepository(Protocol):

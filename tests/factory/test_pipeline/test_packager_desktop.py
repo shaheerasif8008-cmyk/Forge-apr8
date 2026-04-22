@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from factory.models.build import BuildStatus
 from factory.pipeline.builder.packager import package
 
 
@@ -54,3 +55,44 @@ async def test_packager_builds_desktop_installers_when_requested(
     assert any(command[:2] == ["npx", "electron-builder"] for command in calls)
     assert any(artifact.artifact_type == "desktop_installer" for artifact in result.artifacts)
 
+
+@pytest.mark.anyio
+async def test_packager_skip_heavy_builds_does_not_create_placeholder_installers(
+    sample_build,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    build_dir = tmp_path
+    frontend_dir = build_dir / "portal" / "employee_app"
+    frontend_dir.mkdir(parents=True, exist_ok=True)
+
+    sample_build.metadata.update(
+        {
+            "build_dir": str(build_dir),
+            "frontend_dir": str(frontend_dir),
+            "deployment_format": "desktop",
+            "employee_id": "demo-employee",
+            "employee_name": "Demo Employee",
+            "desktop_backend_url": "https://demo.example.com",
+        }
+    )
+
+    calls: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    async def fake_store_container(image_tag, build_id):
+        return str(tmp_path / "employee.tar")
+
+    monkeypatch.setenv("FORGE_SKIP_HEAVY_BUILDS", "1")
+    monkeypatch.setattr("factory.pipeline.builder.packager.subprocess.run", fake_run)
+    monkeypatch.setattr("factory.pipeline.builder.packager.store_container_tarball", fake_store_container)
+
+    result = await package(sample_build)
+
+    assert result.status != BuildStatus.FAILED
+    assert not any(artifact.artifact_type == "desktop_installer" for artifact in result.artifacts)
+    assert not any(path.suffix == ".AppImage" and path.read_text() == "placeholder desktop installer" for path in frontend_dir.rglob("*"))
+    assert any(log.message == "Desktop build completed without installer artifacts" for log in result.logs)

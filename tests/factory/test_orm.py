@@ -29,6 +29,7 @@ def test_all_tables_registered_in_metadata() -> None:
         "deployments",
         "operational_memories",
         "conversations",
+        "employee_tasks",
         "messages",
         "reasoning_records",
         "knowledge_chunks",

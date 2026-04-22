@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from component_library.interfaces import BaseComponent, ComponentHealth
 from component_library.registry import register
-from factory.observability.langfuse_client import get_langfuse_client
+from employee_runtime.shared.observability import get_langfuse_client
 
 logger = structlog.get_logger(__name__)
 

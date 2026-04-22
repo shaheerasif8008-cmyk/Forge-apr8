@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from typing import Any
 
 from factory.models.blueprint import EmployeeBlueprint
@@ -38,6 +39,7 @@ async def generate_config(
     )
 
     config: dict[str, Any] = manifest.model_dump(mode="json")
+    api_auth_token = secrets.token_urlsafe(32)
     config.update({
         "employee_id": str(blueprint.id),
         "org_id": str(blueprint.org_id),
@@ -54,6 +56,8 @@ async def generate_config(
         "communication_channels": requirements.communication_channels,
         "supervisor_email": requirements.supervisor_email,
         "deployment_format": requirements.deployment_format,
+        "auth_required": True,
+        "api_auth_token": api_auth_token,
         "system_identity": blueprint.workflow_description,
         "people": _as_list(org_context.get("people")),
         "escalation_chain": _as_list(org_context.get("escalation_chain")),

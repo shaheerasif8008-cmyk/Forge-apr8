@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from component_library.interfaces import ComponentHealth, QualityModule
 from component_library.registry import register
 from component_library.work.schemas import ChainVerification
-from factory.models.orm import AuditEventRow
+from employee_runtime.shared.orm import AuditEventRow
 
 
 @register("audit_system")

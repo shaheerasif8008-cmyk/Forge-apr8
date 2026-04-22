@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from factory.auth import FactoryAuthContext, ensure_org_access, get_factory_auth
 from factory.database import get_db_session
 from factory.models.deployment import Deployment
 from factory.persistence import get_deployment, save_deployment
@@ -27,11 +28,13 @@ class IntegrationCallbackPayload(BaseModel):
 async def get_deployment_by_id(
     deployment_id: UUID,
     session: AsyncSession = Depends(get_db_session),
+    auth: FactoryAuthContext = Depends(get_factory_auth),
 ) -> Deployment:
     """Get deployment status by deployment ID."""
     deployment = await get_deployment(session, deployment_id)
     if deployment is None:
         raise HTTPException(status_code=404, detail="not_found")
+    ensure_org_access(auth, deployment.org_id)
     return deployment
 
 
@@ -39,10 +42,12 @@ async def get_deployment_by_id(
 async def get_integration_urls(
     deployment_id: UUID,
     session: AsyncSession = Depends(get_db_session),
+    auth: FactoryAuthContext = Depends(get_factory_auth),
 ) -> list[dict[str, str]]:
     deployment = await get_deployment(session, deployment_id)
     if deployment is None:
         raise HTTPException(status_code=404, detail="not_found")
+    ensure_org_access(auth, deployment.org_id)
     return pending_oauth_urls(deployment)
 
 
@@ -51,10 +56,12 @@ async def handle_integration_callback(
     deployment_id: UUID,
     payload: IntegrationCallbackPayload,
     session: AsyncSession = Depends(get_db_session),
+    auth: FactoryAuthContext = Depends(get_factory_auth),
 ) -> Deployment:
     deployment = await get_deployment(session, deployment_id)
     if deployment is None:
         raise HTTPException(status_code=404, detail="not_found")
+    ensure_org_access(auth, deployment.org_id)
     connector = Connector()
     deployment = await connector.handle_callback(
         deployment,

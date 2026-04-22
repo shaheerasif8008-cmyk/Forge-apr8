@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 import pytest
 
+from factory.config import get_settings
 from factory.models.build import Build, BuildStatus
 from factory.models.deployment import DeploymentStatus
 from factory.workers.pipeline_worker import start_pipeline
@@ -57,6 +58,10 @@ async def test_full_pipeline_deploys_on_success(sample_requirements, sample_blue
     async def fake_activate(deployment):
         return deployment.model_copy(update={"status": DeploymentStatus.ACTIVE})
 
+    async def fake_connect(self, deployment, blueprint):
+        return deployment
+
+    monkeypatch.setattr(get_settings(), "human_review_required", False)
     monkeypatch.setattr("factory.workers.pipeline_worker._ensure_session_factory", lambda: fake_session_factory)
     monkeypatch.setattr("factory.workers.pipeline_worker.save_requirements", passthrough_requirements)
     monkeypatch.setattr("factory.workers.pipeline_worker.save_build", passthrough_build)
@@ -69,6 +74,7 @@ async def test_full_pipeline_deploys_on_success(sample_requirements, sample_blue
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.evaluate", fake_evaluate)
     monkeypatch.setattr("factory.pipeline.evaluator.self_correction.correction_loop", fake_correction)
     monkeypatch.setattr("factory.pipeline.deployer.provisioner.provision", fake_provision)
+    monkeypatch.setattr("factory.pipeline.deployer.connector.Connector.connect", fake_connect)
     monkeypatch.setattr("factory.pipeline.deployer.activator.activate", fake_activate)
 
     build = Build(requirements_id=sample_requirements.id, org_id=sample_requirements.org_id)

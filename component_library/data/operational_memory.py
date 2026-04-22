@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from component_library.interfaces import ComponentHealth, DataSource
 from component_library.registry import register
-from factory.models.orm import OperationalMemoryRow
+from employee_runtime.shared.orm import OperationalMemoryRow
 
 
 @register("operational_memory")

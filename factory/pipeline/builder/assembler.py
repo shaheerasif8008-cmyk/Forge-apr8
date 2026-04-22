@@ -56,7 +56,8 @@ async def assemble(
         build_dir / "portal" / "employee_app",
         ignore=shutil.ignore_patterns("dist", "out", "node_modules", ".next", "*.dmg", "*.exe", "*.AppImage"),
     )
-    _write_employee_app_config(blueprint, requirements, build_dir)
+    runtime_config = await generate_config(blueprint, requirements, build_dir=str(build_dir), generated_files=[])
+    _write_employee_app_config(blueprint, requirements, build_dir, runtime_config)
     _copy_component_framework(build_dir / "component_library")
 
     copied_components: list[str] = []
@@ -75,7 +76,7 @@ async def assemble(
     generated_dir.mkdir(exist_ok=True)
     (generated_dir / "__init__.py").write_text("")
 
-    config = await generate_config(blueprint, requirements, build_dir=str(build_dir), generated_files=[])
+    config = runtime_config
     config_path = build_dir / "config.yaml"
     config_path.write_text(json.dumps(config, indent=2, sort_keys=True))
     manifest_path = build_dir / "package_manifest.json"
@@ -102,6 +103,7 @@ async def assemble(
             "enabled_sidebar_panels": _enabled_sidebar_panels(blueprint),
             "desktop_backend_url": blueprint.deployment_spec.hosted_base_url,
             "runtime_template": config.get("manifest", {}).get("artifact_manifest", {}).get("runtime_template", ""),
+            "employee_api_token": str(config.get("api_auth_token", "")),
         }
     )
     build.logs.append(
@@ -147,6 +149,7 @@ def _write_employee_app_config(
     blueprint: EmployeeBlueprint,
     requirements: EmployeeRequirements,
     build_dir: Path,
+    runtime_config: dict[str, object],
 ) -> None:
     employee_app_dir = build_dir / "portal" / "employee_app"
     config_path = employee_app_dir / "app" / "config.ts"
@@ -159,6 +162,7 @@ def _write_employee_app_config(
         "  enabledSidebarPanels: string[];\n"
         "  apiBaseUrl: string;\n"
         "  wsBaseUrl: string;\n"
+        "  apiToken: string;\n"
         "  deploymentFormat: string;\n"
         "};\n\n"
         "export const employeeAppConfig: EmployeeAppConfig = {\n"
@@ -168,6 +172,7 @@ def _write_employee_app_config(
         f"  enabledSidebarPanels: {json.dumps(enabled_panels)},\n"
         "  apiBaseUrl: \"\",\n"
         "  wsBaseUrl: \"\",\n"
+        f"  apiToken: {json.dumps(str(runtime_config.get('api_auth_token', '')))},\n"
         f"  deploymentFormat: {json.dumps(blueprint.deployment_spec.format)},\n"
         "};\n"
     )

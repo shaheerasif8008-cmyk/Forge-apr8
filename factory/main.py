@@ -6,10 +6,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from factory.api import api_router
+from factory.auth import require_factory_auth
 from factory.config import get_settings
 from factory.database import close_engine, init_db_schema, init_engine
 # Eager-import all ORM/Pydantic models so import-time errors surface at container start,
@@ -45,6 +46,18 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
         lifespan=lifespan,
     )
+
+    @app.middleware("http")
+    async def authenticate_factory_requests(request: Request, call_next):
+        if not request.url.path.startswith("/api/v1") or request.url.path == "/api/v1/health":
+            return await call_next(request)
+        try:
+            await require_factory_auth(request)
+        except Exception as exc:  # noqa: BLE001
+            if isinstance(exc, HTTPException):  # type: ignore[name-defined]
+                return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+            raise
+        return await call_next(request)
 
     @app.get("/", tags=["meta"])
     async def root() -> dict[str, str]:

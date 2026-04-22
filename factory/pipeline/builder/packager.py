@@ -181,10 +181,6 @@ def _desktop_env(build: Build) -> dict[str, str]:
 
 def _build_desktop_installers(build: Build, frontend_dir: Path) -> subprocess.CompletedProcess[str]:
     if environ.get("FORGE_SKIP_HEAVY_BUILDS") == "1":
-        placeholder_dir = frontend_dir / "dist"
-        placeholder_dir.mkdir(parents=True, exist_ok=True)
-        placeholder_name = str(build.metadata.get("employee_name", "forge-employee")).replace(" ", "-").lower()
-        (placeholder_dir / f"{placeholder_name}.AppImage").write_text("placeholder desktop installer")
         return subprocess.CompletedProcess(args=["npx", "electron-builder"], returncode=0, stdout="skipped", stderr="")
 
     if not environ.get("CSC_LINK") or not environ.get("CSC_KEY_PASSWORD"):
@@ -300,8 +296,35 @@ def _copy_runtime_context(build_dir: Path, frontend_dir: Path, app_dir: Path) ->
         copytree(static_source, static_destination, dirs_exist_ok=True)
     else:
         static_destination.mkdir(parents=True, exist_ok=True)
+        _write_static_fallback(frontend_dir, static_destination)
 
     (app_dir / "Dockerfile").write_text(_render_template("Dockerfile.template", {"PORT": "8001"}))
+
+
+def _write_static_fallback(frontend_dir: Path, static_destination: Path) -> None:
+    config_path = frontend_dir / "app" / "config.ts"
+    employee_name = "Forge Employee"
+    employee_role = "Autonomous AI Employee"
+    if config_path.exists():
+        config_text = config_path.read_text()
+        employee_name = _ts_config_value(config_text, "employeeName") or employee_name
+        employee_role = _ts_config_value(config_text, "employeeRole") or employee_role
+    index_html = (
+        "<!doctype html><html><head><meta charset=\"utf-8\">"
+        f"<title>{employee_name}</title>"
+        "</head><body>"
+        f"<h1>{employee_name}</h1><p>{employee_role}</p>"
+        "<p>Frontend bundle fallback included because the static export output was unavailable.</p>"
+        "</body></html>"
+    )
+    (static_destination / "index.html").write_text(index_html)
+
+
+def _ts_config_value(config_text: str, key: str) -> str:
+    import re
+
+    match = re.search(rf"{key}:\s*\"([^\"]+)\"", config_text)
+    return match.group(1) if match else ""
 
 
 def _server_bundle_metadata(build: Build) -> dict[str, object]:

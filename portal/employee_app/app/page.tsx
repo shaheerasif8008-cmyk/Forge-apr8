@@ -22,9 +22,12 @@ export default function HomePage() {
 
   useEffect(() => {
     const load = async () => {
+      const headers = employeeAppConfig.apiToken
+        ? { Authorization: `Bearer ${employeeAppConfig.apiToken}` }
+        : undefined;
       const [response, metaResponse] = await Promise.all([
-        fetch(`${apiBase}/api/v1/chat/history?conversation_id=${conversationId}`),
-        fetch(`${apiBase}/api/v1/meta`),
+        fetch(`${apiBase}/api/v1/chat/history?conversation_id=${conversationId}`, { headers }),
+        fetch(`${apiBase}/api/v1/meta`, { headers }),
       ]);
       const data = await response.json();
       setMessages(data.messages);
@@ -89,7 +92,11 @@ export default function HomePage() {
       { id: `local-${Date.now()}`, role: "user", content, message_type: "text" },
     ]);
 
-    const socket = new WebSocket(`${wsBase}/api/v1/ws`);
+    const socketUrl = new URL(`${wsBase}/api/v1/ws`);
+    if (employeeAppConfig.apiToken) {
+      socketUrl.searchParams.set("token", employeeAppConfig.apiToken);
+    }
+    const socket = new WebSocket(socketUrl.toString());
     let streamedText = "";
     socket.onopen = () => {
       socket.send(JSON.stringify({ type: "chat_message", content, conversation_id: conversationId }));
@@ -144,6 +151,7 @@ export default function HomePage() {
     }
     await fetch(`${apiBase}/api/v1/documents/upload`, {
       method: "POST",
+      headers: employeeAppConfig.apiToken ? { Authorization: `Bearer ${employeeAppConfig.apiToken}` } : undefined,
       body: form,
     });
     void window.forge?.notify?.("Document uploaded", "The document is available in Memory.", "/memory");

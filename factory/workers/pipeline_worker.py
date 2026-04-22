@@ -4,15 +4,26 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from uuid import UUID
 
 import structlog
 
+from factory.config import get_settings
 from factory.database import get_session_factory, init_engine
-from factory.models.build import Build, BuildStatus
+from factory.models.blueprint import EmployeeBlueprint
+from factory.models.build import Build, BuildLog, BuildStatus
 from factory.models.deployment import Deployment, DeploymentStatus
 from factory.models.requirements import EmployeeRequirements
 from factory.observability.langfuse_client import get_langfuse_client
-from factory.persistence import save_blueprint, save_build, save_deployment, save_requirements
+from factory.persistence import (
+    get_blueprint,
+    get_build,
+    get_requirements,
+    save_blueprint,
+    save_build,
+    save_deployment,
+    save_requirements,
+)
 from factory.workers.celery_app import celery_app
 
 logger = structlog.get_logger(__name__)
@@ -40,10 +51,6 @@ async def start_pipeline(requirements: EmployeeRequirements, build: Build) -> Bu
     from factory.pipeline.builder.assembler import assemble
     from factory.pipeline.builder.generator import generate
     from factory.pipeline.builder.packager import package
-    from factory.pipeline.deployer.activator import activate
-    from factory.pipeline.deployer.connector import Connector
-    from factory.pipeline.deployer.provisioner import provision
-    from factory.pipeline.deployer.rollback import rollback
     from factory.pipeline.evaluator.self_correction import correction_loop
     from factory.pipeline.evaluator.test_runner import evaluate
 
@@ -105,39 +112,21 @@ async def start_pipeline(requirements: EmployeeRequirements, build: Build) -> Bu
                     await session.commit()
 
                 if build.status == BuildStatus.PASSED:
-                    build.status = BuildStatus.DEPLOYING
-                    await save_build(session, build)
-                    await session.commit()
-
-                    deployment = Deployment(
-                        build_id=build.id,
-                        org_id=requirements.org_id,
-                        format=requirements.deployment_format,
-                        status=DeploymentStatus.PENDING,
-                    )
-                    connector = Connector()
-                    try:
-                        with get_langfuse_client().span("pipeline.provisioner", metadata={"build_id": str(build.id)}):
-                            deployment = await provision(deployment, build)
-                        with get_langfuse_client().span("pipeline.connector", metadata={"build_id": str(build.id)}):
-                            deployment = await connector.connect(deployment, blueprint)
-                        await save_deployment(session, deployment)
+                    if get_settings().human_review_required:
+                        build.status = BuildStatus.PENDING_REVIEW
+                        build.logs.append(
+                            BuildLog(
+                                timestamp=datetime.now(UTC),
+                                stage="review",
+                                level="info",
+                                message="Build passed evaluation and is awaiting required human review before deployment.",
+                                detail={},
+                            )
+                        )
+                        await save_build(session, build)
                         await session.commit()
-                        with get_langfuse_client().span("pipeline.activator", metadata={"build_id": str(build.id)}):
-                            deployment = await activate(deployment)
-                    except Exception:
-                        logger.exception("pipeline_deploy_failure", build_id=str(build.id), deployment_id=str(deployment.id))
-                        with get_langfuse_client().span("pipeline.rollback", metadata={"build_id": str(build.id)}):
-                            deployment = await rollback(deployment, session)
-                    await save_deployment(session, deployment)
-                    build.status = (
-                        BuildStatus.DEPLOYED
-                        if deployment.status == DeploymentStatus.ACTIVE
-                        else BuildStatus.FAILED
-                    )
-                    build.completed_at = datetime.now(UTC)
-                    await save_build(session, build)
-                    await session.commit()
+                    else:
+                        build = await _deploy_build(session, requirements, blueprint, build)
 
                 trace.end(output=build.model_dump(mode="json"), metadata={"status": build.status.value})
                 logger.info("pipeline_complete", status=build.status)
@@ -152,6 +141,93 @@ async def start_pipeline(requirements: EmployeeRequirements, build: Build) -> Bu
             logger.exception("pipeline_error_persist_failed", build_id=str(build.id))
 
     return build
+
+
+async def _deploy_build(
+    session,
+    requirements: EmployeeRequirements,
+    blueprint: EmployeeBlueprint,
+    build: Build,
+) -> Build:
+    from factory.pipeline.deployer.activator import activate
+    from factory.pipeline.deployer.connector import Connector
+    from factory.pipeline.deployer.provisioner import provision
+    from factory.pipeline.deployer.rollback import rollback
+
+    build.status = BuildStatus.DEPLOYING
+    await save_build(session, build)
+    await session.commit()
+
+    deployment = Deployment(
+        build_id=build.id,
+        org_id=requirements.org_id,
+        format=requirements.deployment_format,
+        status=DeploymentStatus.PENDING,
+    )
+    connector = Connector()
+    try:
+        with get_langfuse_client().span("pipeline.provisioner", metadata={"build_id": str(build.id)}):
+            deployment = await provision(deployment, build)
+        with get_langfuse_client().span("pipeline.connector", metadata={"build_id": str(build.id)}):
+            deployment = await connector.connect(deployment, blueprint)
+        await save_deployment(session, deployment)
+        await session.commit()
+        if deployment.status != DeploymentStatus.PENDING_CLIENT_ACTION:
+            with get_langfuse_client().span("pipeline.activator", metadata={"build_id": str(build.id)}):
+                deployment = await activate(deployment)
+    except Exception:
+        logger.exception("pipeline_deploy_failure", build_id=str(build.id), deployment_id=str(deployment.id))
+        with get_langfuse_client().span("pipeline.rollback", metadata={"build_id": str(build.id)}):
+            deployment = await rollback(deployment, session)
+
+    await save_deployment(session, deployment)
+    if deployment.status == DeploymentStatus.ACTIVE:
+        build.status = BuildStatus.DEPLOYED
+    elif deployment.status == DeploymentStatus.PENDING_CLIENT_ACTION:
+        build.status = BuildStatus.PENDING_CLIENT_ACTION
+    else:
+        build.status = BuildStatus.FAILED
+    build.completed_at = datetime.now(UTC)
+    await save_build(session, build)
+    await session.commit()
+    return build
+
+
+async def resume_deployment(build_id: str) -> Build:
+    build_uuid = UUID(build_id)
+    session_factory = _ensure_session_factory()
+    async with session_factory() as session:
+        build = await get_build(session, build_uuid)
+        if build is None:
+            raise RuntimeError("build_not_found")
+        if build.requirements_id is None or build.blueprint_id is None:
+            raise RuntimeError("build_dependencies_missing")
+
+        requirements = await get_requirements(session, build.requirements_id)
+        blueprint = await get_blueprint(session, build.blueprint_id)
+        if requirements is None or blueprint is None:
+            raise RuntimeError("build_dependencies_missing")
+
+        build.logs.append(
+            BuildLog(
+                timestamp=datetime.now(UTC),
+                stage="review",
+                level="info",
+                message="Human review approved. Resuming deployment.",
+                detail={},
+            )
+        )
+        build.status = BuildStatus.PASSED
+        build.completed_at = None
+        build = await save_build(session, build)
+        await session.commit()
+        return await _deploy_build(session, requirements, blueprint, build)
+
+
+@celery_app.task(name="factory.workers.pipeline_worker.resume_deployment")
+def resume_deployment_task(build_id: str) -> dict:
+    result = asyncio.get_event_loop().run_until_complete(resume_deployment(build_id))
+    return result.model_dump()
 
 
 @celery_app.task(name="factory.workers.pipeline_worker.run_pipeline")

@@ -70,3 +70,80 @@ async def test_build_stream_returns_sse_payload(client, sample_build, monkeypatc
     assert response.headers["content-type"].startswith("text/event-stream")
     assert "event: build" in response.text
     assert "\"status\": \"deployed\"" in response.text
+
+
+@pytest.mark.anyio
+async def test_approve_build_queues_resume(client, sample_build, monkeypatch) -> None:
+    async def fake_db():
+        yield object()
+
+    sample_build.status = BuildStatus.PENDING_REVIEW
+    recorded: dict[str, object] = {}
+
+    async def fake_get_build(session, build_id):
+        return sample_build
+
+    async def fake_save_build(session, build):
+        recorded["build"] = build
+        return build
+
+    def fake_delay(build_id):
+        recorded["build_id"] = build_id
+
+    app.dependency_overrides[get_db_session] = fake_db
+    monkeypatch.setattr("factory.api.builds.get_build", fake_get_build)
+    monkeypatch.setattr("factory.api.builds.save_build", fake_save_build)
+    monkeypatch.setattr("factory.api.builds.resume_deployment_task.delay", fake_delay)
+
+    response = await client.post(f"/api/v1/builds/{sample_build.id}/approve")
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "deploying"
+    assert recorded["build_id"] == str(sample_build.id)
+
+
+@pytest.mark.anyio
+async def test_reject_build_marks_failed(client, sample_build, monkeypatch) -> None:
+    async def fake_db():
+        yield object()
+
+    sample_build.status = BuildStatus.PENDING_REVIEW
+    recorded: dict[str, object] = {}
+
+    async def fake_get_build(session, build_id):
+        return sample_build
+
+    async def fake_save_build(session, build):
+        recorded["build"] = build
+        return build
+
+    app.dependency_overrides[get_db_session] = fake_db
+    monkeypatch.setattr("factory.api.builds.get_build", fake_get_build)
+    monkeypatch.setattr("factory.api.builds.save_build", fake_save_build)
+
+    response = await client.post(f"/api/v1/builds/{sample_build.id}/reject")
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+
+
+@pytest.mark.anyio
+async def test_retry_build_rejects_non_failed_status(client, sample_requirements, sample_build, monkeypatch) -> None:
+    async def fake_db():
+        yield object()
+
+    sample_build.status = BuildStatus.PENDING_REVIEW
+
+    async def fake_get_build(session, build_id):
+        return sample_build
+
+    app.dependency_overrides[get_db_session] = fake_db
+    monkeypatch.setattr("factory.api.builds.get_build", fake_get_build)
+
+    response = await client.post(f"/api/v1/builds/{sample_build.id}/retry")
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "build_not_retryable"

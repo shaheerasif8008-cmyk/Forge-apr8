@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from factory.auth import FactoryAuthContext, ensure_org_access, get_factory_auth
 from factory.database import get_db_session
 from factory.models.build import Build, BuildLog, BuildStatus
 from factory.models.requirements import EmployeeRequirements
@@ -53,8 +54,10 @@ class CommissionLogsResponse(BaseModel):
 async def create_commission(
     payload: CommissionRequest,
     session: AsyncSession = Depends(get_db_session),
+    auth: FactoryAuthContext = Depends(get_factory_auth),
 ) -> CommissionAcceptedResponse:
     """Accept a new employee commission and queue the full factory pipeline."""
+    ensure_org_access(auth, payload.org_id)
     requirements = EmployeeRequirements(**payload.model_dump())
     build = Build(
         requirements_id=requirements.id,
@@ -76,11 +79,13 @@ async def create_commission(
 async def get_commission(
     commission_id: UUID,
     session: AsyncSession = Depends(get_db_session),
+    auth: FactoryAuthContext = Depends(get_factory_auth),
 ) -> CommissionStatusResponse:
     """Retrieve the latest build/deployment status for a commission."""
     requirements = await get_requirements(session, commission_id)
     if requirements is None:
         raise HTTPException(status_code=404, detail="not_found")
+    ensure_org_access(auth, requirements.org_id)
 
     build = await get_latest_build_for_commission(session, commission_id)
     if build is None:
@@ -106,9 +111,11 @@ async def get_commission(
 async def get_commission_logs(
     commission_id: UUID,
     session: AsyncSession = Depends(get_db_session),
+    auth: FactoryAuthContext = Depends(get_factory_auth),
 ) -> CommissionLogsResponse:
     """Return build logs for the latest build associated with a commission."""
     build = await get_latest_build_for_commission(session, commission_id)
     if build is None:
         raise HTTPException(status_code=404, detail="not_found")
+    ensure_org_access(auth, build.org_id)
     return CommissionLogsResponse(commission_id=commission_id, build_id=build.id, logs=build.logs)

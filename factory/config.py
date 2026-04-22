@@ -46,6 +46,10 @@ class FactorySettings(BaseSettings):
     factory_jwt_secret: str = Field("change-me")
     jwt_algorithm: str = Field("HS256")
     jwt_expiration_minutes: int = Field(60)
+    factory_jwt_audience: str = Field("")
+    factory_jwt_issuer: str = Field("")
+    clerk_jwks_url: str = Field("")
+    clerk_issuer: str = Field("")
 
     # ── LLM routing (all via litellm) ─────────────────────────────
     anthropic_api_key: str = Field("")

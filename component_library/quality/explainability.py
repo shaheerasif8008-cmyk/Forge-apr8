@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from component_library.interfaces import ComponentHealth, QualityModule
 from component_library.quality.schemas import DecisionPoint, ReasoningRecord
 from component_library.registry import register
-from factory.models.orm import ReasoningRecordRow
+from employee_runtime.shared.orm import ReasoningRecordRow
 
 
 @register("explainability")

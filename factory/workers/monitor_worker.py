@@ -10,6 +10,7 @@ from factory.models.monitoring import PerformanceMetric
 from factory.persistence import (
     list_active_deployments,
     list_recent_performance_metrics,
+    save_deployment,
     save_monitoring_event,
     save_performance_metric,
 )
@@ -40,6 +41,7 @@ async def _async_health_sweep() -> None:
         deployments = await list_active_deployments(session)
         for deployment in deployments:
             event = await check_health(deployment)
+            await save_deployment(session, deployment)
             await save_monitoring_event(session, event)
             await save_performance_metric(
                 session,

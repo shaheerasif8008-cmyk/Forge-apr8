@@ -1,7 +1,20 @@
 "use client";
 
+declare global {
+  interface Window {
+    __FORGE_API_BASE__?: string;
+    __FORGE_FACTORY_TOKEN__?: string;
+  }
+}
+
+let authTokenResolver: (() => Promise<string | null | undefined>) | null = null;
+
 function stripTrailingSlash(value: string): string {
   return value.replace(/\/$/, "");
+}
+
+export function setFactoryAuthTokenResolver(resolver: (() => Promise<string | null | undefined>) | null): void {
+  authTokenResolver = resolver;
 }
 
 export type Build = {
@@ -35,7 +48,7 @@ export type Deployment = {
 
 export function resolveFactoryApiBaseUrl(): string {
   if (typeof window !== "undefined") {
-    const configured = (window as typeof window & { __FORGE_API_BASE__?: string }).__FORGE_API_BASE__;
+    const configured = window.__FORGE_API_BASE__;
     if (configured) {
       return stripTrailingSlash(configured);
     }
@@ -43,8 +56,33 @@ export function resolveFactoryApiBaseUrl(): string {
   return stripTrailingSlash(process.env.NEXT_PUBLIC_FACTORY_API_URL ?? "http://localhost:8000");
 }
 
+async function resolveFactoryAuthToken(): Promise<string> {
+  if (authTokenResolver) {
+    const resolved = (await authTokenResolver())?.trim();
+    if (resolved) {
+      return resolved;
+    }
+  }
+  if (typeof window !== "undefined") {
+    const localToken = window.__FORGE_FACTORY_TOKEN__?.trim();
+    if (localToken) {
+      return localToken;
+    }
+  }
+  return (process.env.NEXT_PUBLIC_FACTORY_API_TOKEN ?? "").trim();
+}
+
+async function withFactoryAuth(init?: RequestInit): Promise<RequestInit> {
+  const headers = new Headers(init?.headers ?? {});
+  const token = await resolveFactoryAuthToken();
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  return { ...init, headers };
+}
+
 async function getJson<T>(input: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init);
+  const response = await fetch(input, await withFactoryAuth(init));
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
@@ -107,6 +145,14 @@ export async function fetchBuild(buildId: string): Promise<Build> {
 
 export async function retryBuild(buildId: string): Promise<Build> {
   return getJson<Build>(`${resolveFactoryApiBaseUrl()}/api/v1/builds/${buildId}/retry`, { method: "POST" });
+}
+
+export async function approveBuild(buildId: string): Promise<Build> {
+  return getJson<Build>(`${resolveFactoryApiBaseUrl()}/api/v1/builds/${buildId}/approve`, { method: "POST" });
+}
+
+export async function rejectBuild(buildId: string): Promise<Build> {
+  return getJson<Build>(`${resolveFactoryApiBaseUrl()}/api/v1/builds/${buildId}/reject`, { method: "POST" });
 }
 
 export async function fetchRoster(orgId: string): Promise<Deployment[]> {

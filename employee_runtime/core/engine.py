@@ -11,12 +11,12 @@ import structlog
 
 from component_library.interfaces import BaseComponent
 from employee_runtime.core.state import EmployeeState
+from employee_runtime.shared.observability import get_langfuse_client
 from employee_runtime.workflows.dynamic_builder import (
     build_graph,
     load_builtin_workflow_spec,
     run_streaming,
 )
-from factory.observability.langfuse_client import get_langfuse_client
 
 logger = structlog.get_logger(__name__)
 

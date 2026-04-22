@@ -16,11 +16,13 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Request,
     Response,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
 )
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
@@ -56,6 +58,11 @@ from employee_runtime.core.conversation_repository import (
     InMemoryConversationRepository,
     SqlAlchemyConversationRepository,
 )
+from employee_runtime.core.auth import (
+    authorize_request,
+    authorize_websocket,
+    runtime_auth_config_from_dict,
+)
 from employee_runtime.core.engine import EmployeeEngine
 from employee_runtime.core.runtime_db import initialize_runtime_database, normalize_org_uuid
 from employee_runtime.core.task_repository import (
@@ -63,10 +70,10 @@ from employee_runtime.core.task_repository import (
     SqlAlchemyTaskRepository,
     TaskRepository,
 )
+from employee_runtime.shared.orm import KnowledgeChunkRow
 from employee_runtime.core.tool_broker import ToolBroker
 from employee_runtime.modules.behavior_manager import BehaviorManager
 from employee_runtime.modules.pulse_engine import DailyLoopRequest, PulseEngine
-from factory.models.orm import KnowledgeChunkRow
 
 
 class TaskRequest(BaseModel):
@@ -1308,6 +1315,7 @@ class EmployeeRuntimeService:
 
 def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) -> FastAPI:
     service = EmployeeRuntimeService(employee_id, config or {})
+    auth_config = runtime_auth_config_from_dict(service.config)
 
     async def ensure_ready() -> None:
         await service.initialize()
@@ -1325,6 +1333,16 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
 
     app = FastAPI(title=f"Employee API — {employee_id}", version="1.0.0", lifespan=lifespan)
     app.state.runtime_service = service
+
+    @app.middleware("http")
+    async def authenticate_api_requests(request: Request, call_next):
+        if request.url.path in {"/health", "/api/v1/health"}:
+            return await call_next(request)
+        try:
+            authorize_request(request, auth_config)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        return await call_next(request)
 
     async def _health(response: Response) -> dict[str, str]:
         await service.initialize()
@@ -1586,6 +1604,8 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
 
     @app.websocket("/api/v1/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
+        if not await authorize_websocket(websocket, auth_config):
+            return
         await ensure_ready()
         await websocket.accept()
         try:
@@ -1745,6 +1765,8 @@ def _normalize_runtime_config(employee_id: str, config: dict[str, Any]) -> dict[
         "employee_database_url": config.get("employee_database_url", raw_manifest.get("employee_database_url", "")),
         "employee_db_auto_init": config.get("employee_db_auto_init", raw_manifest.get("employee_db_auto_init", True)),
         "static_dir": config.get("static_dir", raw_manifest.get("static_dir", "")),
+        "auth_required": config.get("auth_required", raw_manifest.get("auth_required", False)),
+        "api_auth_token": config.get("api_auth_token", raw_manifest.get("api_auth_token", "")),
         "session_factory": config.get("session_factory"),
         "conversation_repository": config.get("conversation_repository"),
         "task_repository": config.get("task_repository"),

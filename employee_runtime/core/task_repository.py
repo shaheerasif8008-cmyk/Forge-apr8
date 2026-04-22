@@ -11,7 +11,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from factory.models.orm import EmployeeTaskRow
+from employee_runtime.shared.orm import EmployeeTaskRow
 
 INFLIGHT_TASK_STATUSES = {"queued", "running"}
 
