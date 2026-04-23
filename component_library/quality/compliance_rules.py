@@ -21,6 +21,14 @@ POLICY_DIR = Path(__file__).resolve().parent / "policies"
 
 @register("compliance_rules")
 class ComplianceRules(QualityModule):
+    config_schema = {
+        "opa_url": {"type": "str", "required": False, "description": "OPA server URL (e.g. http://localhost:8181); omit for regex/local fallback.", "default": "http://opa:8181"},
+        "policy_name": {"type": "str", "required": False, "description": "Compliance policy name, such as legal or healthcare.", "default": "legal"},
+        "policy_package": {"type": "str", "required": False, "description": "OPA policy package path (e.g. forge/legal).", "default": "forge/legal"},
+        "conflicts": {"type": "list", "required": False, "description": "Known conflicted entities or restricted parties.", "default": []},
+        "use_opa_server": {"type": "bool", "required": False, "description": "Whether to call a live OPA server for policy decisions.", "default": False},
+        "policy_dir": {"type": "str", "required": False, "description": "Directory containing local Rego policy files.", "default": "component_library/quality/policies"},
+    }
     component_id = "compliance_rules"
     version = "1.0.0"
 

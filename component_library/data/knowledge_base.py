@@ -14,7 +14,12 @@ import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from component_library.interfaces import ComponentHealth, DataSource
+from component_library.interfaces import (
+    ComponentHealth,
+    ComponentInitializationError,
+    DataSource,
+    strict_providers_enabled,
+)
 from component_library.models.litellm_router import LitellmRouter
 from component_library.registry import register
 from employee_runtime.shared.orm import KnowledgeChunkRow
@@ -28,6 +33,15 @@ MAX_CHUNK_CHARS = 500
 
 @register("knowledge_base")
 class KnowledgeBase(DataSource):
+    config_schema = {
+        "tenant_id": {"type": "str", "required": True, "description": "UUID scoping all stored knowledge to one tenant.", "default": ""},
+        "session_factory": {"type": "object", "required": False, "description": "SQLAlchemy async_sessionmaker for pgvector persistence; omit for in-memory.", "default": None},
+        "document_ingestion": {"type": "object", "required": False, "description": "Document ingestion component used to chunk full documents.", "default": None},
+        "embedder": {"type": "callable", "required": False, "description": "Custom async or sync embedding callable.", "default": None},
+        "memory_store": {"type": "list", "required": False, "description": "Shared in-memory chunk store for local/test mode.", "default": []},
+        "embedding_model": {"type": "str", "required": False, "description": "litellm embedding model string.", "default": "openai/text-embedding-3-large"},
+        "allow_deterministic_fallback": {"type": "bool", "required": False, "description": "Allow SHA-based fake embeddings when real embedder unavailable (dev only).", "default": False},
+    }
     component_id = "knowledge_base"
     version = "1.0.0"
 
@@ -42,6 +56,7 @@ class KnowledgeBase(DataSource):
         self._embedding_model = str(config.get("embedding_model", settings.embedding_model))
         self._allow_deterministic_fallback = bool(config.get("allow_deterministic_fallback", False))
         self._router: LitellmRouter | None = None
+        self._fallback_active = False
 
         if self._embedder is None:
             router = LitellmRouter()
@@ -57,7 +72,25 @@ class KnowledgeBase(DataSource):
             )
             self._router = router
 
+        if self._embedder is None and self._router is None:
+            self._fallback_active = True
+            logger.warning(
+                "component_fallback_active",
+                component="knowledge_base",
+                reason="no embedder and no router; queries will return empty results",
+            )
+            if strict_providers_enabled():
+                raise ComponentInitializationError(
+                    "knowledge_base: embedder or litellm_router required when "
+                    "FORGE_STRICT_PROVIDERS=true"
+                )
+
     async def health_check(self) -> ComponentHealth:
+        if self._fallback_active:
+            return ComponentHealth(
+                healthy=False,
+                detail="fallback_mode: no real embedder; retrieval quality degraded",
+            )
         storage = "database" if self._session_factory is not None else "memory"
         embedder_mode = "custom" if self._embedder is not None else "litellm_router"
         if self._embedder is None and self._router is None:
@@ -204,27 +237,45 @@ class KnowledgeBase(DataSource):
         if self._router is not None:
             try:
                 return await self._router.embed(text)
-            except (AttributeError, ImportError, ModuleNotFoundError) as exc:
+            except Exception as exc:
                 if not self._allow_deterministic_fallback:
                     raise RuntimeError(
                         "KnowledgeBase requires litellm embeddings unless "
                         "allow_deterministic_fallback=True is set explicitly."
                     ) from exc
+                if strict_providers_enabled():
+                    raise ComponentInitializationError(
+                        "knowledge_base: real embeddings required when FORGE_STRICT_PROVIDERS=true"
+                    ) from exc
                 logger.warning(
-                    "knowledge_base_deterministic_fallback",
+                    "component_fallback_active",
+                    component="knowledge_base",
                     tenant_id=str(self._tenant_id),
                     embedding_model=self._embedding_model,
-                    reason=str(exc),
+                    reason=(
+                        "deterministic SHA-based embedding fallback active; "
+                        "retrieval quality is degraded"
+                    ),
                 )
+                self._fallback_active = True
                 return self._deterministic_embed(text)
 
         if self._allow_deterministic_fallback:
+            if strict_providers_enabled():
+                raise ComponentInitializationError(
+                    "knowledge_base: real embeddings required when FORGE_STRICT_PROVIDERS=true"
+                )
             logger.warning(
-                "knowledge_base_deterministic_fallback",
+                "component_fallback_active",
+                component="knowledge_base",
                 tenant_id=str(self._tenant_id),
                 embedding_model=self._embedding_model,
-                reason="router unavailable",
+                reason=(
+                    "deterministic SHA-based embedding fallback active; "
+                    "retrieval quality is degraded"
+                ),
             )
+            self._fallback_active = True
             return self._deterministic_embed(text)
         raise RuntimeError(
             "KnowledgeBase embedder is not configured and deterministic fallback is disabled."

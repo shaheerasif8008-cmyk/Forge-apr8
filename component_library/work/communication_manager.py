@@ -13,6 +13,10 @@ from component_library.work.schemas import ExecutiveAssistantPlan, ExecutiveAssi
 
 @register("communication_manager")
 class CommunicationManager(WorkCapability):
+    config_schema = {
+        "voice": {"type": "str", "required": False, "description": "Default communication voice/tone.", "default": "clear and concise"},
+        "signature": {"type": "str", "required": False, "description": "Signature/name used in outgoing communications.", "default": "Forge Employee"},
+    }
     component_id = "communication_manager"
     version = "1.0.0"
 

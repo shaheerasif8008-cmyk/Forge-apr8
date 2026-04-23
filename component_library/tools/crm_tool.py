@@ -11,6 +11,10 @@ from component_library.tools.adapter_runtime import InMemoryProviderAdapter
 
 @register("crm_tool")
 class CrmTool(ToolIntegration):
+    config_schema = {
+        "provider": {"type": "str", "required": False, "description": "CRM provider: salesforce | hubspot | fixture.", "default": "fixture"},
+        "fixtures": {"type": "dict", "required": False, "description": "Fixture CRM records keyed by email/name for dev/test mode.", "default": {}},
+    }
     component_id = "crm_tool"
     version = "1.0.0"
 

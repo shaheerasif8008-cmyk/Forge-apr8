@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 
 from component_library.data.knowledge_base import KnowledgeBase
+from component_library.interfaces import ComponentInitializationError
 from component_library.tools.document_ingestion import DocumentIngestion
 
 
@@ -79,7 +80,29 @@ async def test_deterministic_fallback_is_opt_in(monkeypatch: pytest.MonkeyPatch)
 
     assert len(vector) == 1536
     assert warnings
-    assert warnings[0]["event"] == "knowledge_base_deterministic_fallback"
+    assert warnings[0]["event"] == "component_fallback_active"
+    assert warnings[0]["component"] == "knowledge_base"
+
+    health = await fallback.health_check()
+    assert health.healthy is False
+    assert "fallback_mode" in health.detail
+
+
+@pytest.mark.anyio
+async def test_knowledge_base_strict_mode_raises_on_embedding_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FORGE_STRICT_PROVIDERS", "true")
+    monkeypatch.setattr(
+        "component_library.data.knowledge_base.get_settings",
+        lambda: _settings(),
+    )
+
+    kb = KnowledgeBase()
+    await kb.initialize({"tenant_id": "tenant-a", "allow_deterministic_fallback": True})
+
+    with pytest.raises(ComponentInitializationError):
+        await kb._embed("hello")
 
 
 class _FakeResult:

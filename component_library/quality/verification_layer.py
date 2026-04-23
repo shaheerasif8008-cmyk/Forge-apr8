@@ -14,6 +14,10 @@ from component_library.work.schemas import VerificationInput, VerificationResult
 
 @register("verification_layer")
 class VerificationLayer(QualityModule):
+    config_schema = {
+        "strict_email_validation": {"type": "bool", "required": False, "description": "Validate client email format in produced briefs.", "default": True},
+        "strict_phone_validation": {"type": "bool", "required": False, "description": "Validate client phone format in produced briefs.", "default": True},
+    }
     component_id = "verification_layer"
     version = "1.0.0"
 

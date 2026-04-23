@@ -3,6 +3,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from component_library.interfaces import ComponentInitializationError
 from component_library.tools.search_tool import SearchTool
 
 
@@ -56,3 +57,25 @@ async def test_search_tool_rejects_unknown_action() -> None:
     await tool.initialize({})
     with pytest.raises(ValueError, match="Unsupported search action"):
         await tool.invoke("unknown", {})
+
+
+@pytest.mark.anyio
+async def test_search_tool_reports_unhealthy_fixture_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    tool = SearchTool()
+    await tool.initialize({})
+
+    health = await tool.health_check()
+
+    assert health.healthy is False
+    assert "fallback_mode" in health.detail
+
+
+@pytest.mark.anyio
+async def test_search_tool_strict_mode_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.setenv("FORGE_STRICT_PROVIDERS", "true")
+    tool = SearchTool()
+
+    with pytest.raises(ComponentInitializationError):
+        await tool.initialize({})

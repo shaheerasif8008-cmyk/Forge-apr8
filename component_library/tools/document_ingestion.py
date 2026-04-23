@@ -8,7 +8,12 @@ from typing import Any
 
 import structlog
 
-from component_library.interfaces import ComponentHealth, ToolIntegration
+from component_library.interfaces import (
+    ComponentHealth,
+    ComponentInitializationError,
+    ToolIntegration,
+    strict_providers_enabled,
+)
 from component_library.registry import register
 from component_library.tools.adapter_runtime import InMemoryProviderAdapter
 
@@ -22,14 +27,34 @@ logger = structlog.get_logger(__name__)
 
 @register("document_ingestion")
 class DocumentIngestion(ToolIntegration):
+    config_schema = {
+        "provider": {"type": "str", "required": False, "description": "Parsing backend: unstructured | local (naive text split).", "default": "local"},
+    }
     component_id = "document_ingestion"
     version = "1.0.0"
 
     async def initialize(self, config: dict[str, Any]) -> None:
         self._provider = str(config.get("provider", "local"))
         self._adapter = InMemoryProviderAdapter(self._provider)
+        self._fallback_active = partition is None
+        if self._fallback_active:
+            logger.warning(
+                "component_fallback_active",
+                component="document_ingestion",
+                reason="unstructured not installed; using naive text splitting",
+            )
+            if strict_providers_enabled():
+                raise ComponentInitializationError(
+                    "document_ingestion: unstructured required when FORGE_STRICT_PROVIDERS=true. "
+                    "Install with: pip install 'unstructured[all-docs]'"
+                )
 
     async def health_check(self) -> ComponentHealth:
+        if self._fallback_active:
+            return ComponentHealth(
+                healthy=False,
+                detail="fallback_mode: unstructured not installed; using naive text split",
+            )
         mode = "unstructured" if partition is not None else "fallback"
         return ComponentHealth(healthy=True, detail=f"provider={self._provider}; mode={mode}")
 

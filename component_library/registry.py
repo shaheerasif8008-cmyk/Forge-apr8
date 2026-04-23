@@ -72,7 +72,11 @@ def describe_all_components(*, production_only: bool = True) -> list[ComponentDe
                 category=str(getattr(cls, "category", "")),
                 version=str(getattr(cls, "version", "latest")),
                 description=(inspect.getdoc(cls) or "").split("\n\n")[0],
-                config_schema_json=json.dumps({}, sort_keys=True),
+                config_schema_json=json.dumps(
+                    getattr(cls, "config_schema", {}),
+                    sort_keys=True,
+                    default=str,
+                ),
                 status=status,
             )
         )

@@ -11,6 +11,10 @@ from component_library.tools.adapter_runtime import InMemoryProviderAdapter
 
 @register("messaging_tool")
 class MessagingTool(ToolIntegration):
+    config_schema = {
+        "provider": {"type": "str", "required": False, "description": "Messaging provider: slack | teams | fixture.", "default": "fixture"},
+        "fixtures": {"type": "list", "required": False, "description": "Fixture messages for dev/test mode.", "default": []},
+    }
     component_id = "messaging_tool"
     version = "1.0.0"
 

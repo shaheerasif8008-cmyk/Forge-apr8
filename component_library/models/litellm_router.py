@@ -92,6 +92,17 @@ class LitellmRouter(BaseComponent):
         result = await router.structure(MyOutput, messages, task_type=TaskType.STRUCTURED)
     """
 
+    config_schema = {
+        "primary_model": {"type": "str", "required": True, "description": "Primary LLM model string (e.g. openrouter/anthropic/claude-3.5-sonnet).", "default": ""},
+        "fallback_model": {"type": "str", "required": False, "description": "Fallback model if primary fails.", "default": ""},
+        "reasoning_model": {"type": "str", "required": False, "description": "Model for deep reasoning tasks.", "default": ""},
+        "safety_model": {"type": "str", "required": False, "description": "Fast model for safety/guardrail checks.", "default": ""},
+        "fast_model": {"type": "str", "required": False, "description": "Latency-optimized model for simple tasks.", "default": ""},
+        "embedding_model": {"type": "str", "required": False, "description": "Model for vector embeddings.", "default": "openai/text-embedding-3-large"},
+        "max_tokens": {"type": "int", "required": False, "description": "Default max output tokens per call.", "default": 4096},
+        "timeout": {"type": "int", "required": False, "description": "Request timeout in seconds.", "default": 60},
+        "route_overrides": {"type": "dict", "required": False, "description": "Optional task-type to model override map.", "default": {}},
+    }
     component_id = "litellm_router"
     version = "1.0.0"
     category = "models"

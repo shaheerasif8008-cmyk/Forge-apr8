@@ -20,6 +20,15 @@ DEFAULT_MATRIX_PATH = Path(__file__).resolve().parent / "autonomy_matrix.yaml"
 
 @register("autonomy_manager")
 class AutonomyManager(QualityModule):
+    config_schema = {
+        "matrix_path": {"type": "str", "required": False, "description": "Path to autonomy rule matrix YAML.", "default": "component_library/quality/autonomy_matrix.yaml"},
+        "tenant_overrides": {"type": "dict", "required": False, "description": "Tenant policy overrides such as force approval/escalation.", "default": {}},
+        "required_approver": {"type": "str", "required": False, "description": "Default approver used when approval is required.", "default": "supervisor"},
+        "audit_logger": {"type": "object", "required": False, "description": "Optional async audit logger callable.", "default": None},
+        "default_autonomy_level": {"type": "str", "required": False, "description": "full_auto | supervised | approval_required | manual.", "default": "supervised"},
+        "high_risk_threshold": {"type": "float", "required": False, "description": "Confidence below which HIGH-risk actions require approval.", "default": 0.85},
+        "critical_risk_threshold": {"type": "float", "required": False, "description": "Confidence below which CRITICAL actions always escalate.", "default": 0.95},
+    }
     component_id = "autonomy_manager"
     version = "1.0.0"
 

@@ -13,6 +13,9 @@ from component_library.work.schemas import ExecutiveAssistantInput, ExecutiveAss
 
 @register("workflow_executor")
 class WorkflowExecutor(WorkCapability):
+    config_schema = {
+        "auto_actions": {"type": "list", "required": False, "description": "Action names the executor may run without approval.", "default": ["analyze", "draft", "classify"]},
+    }
     component_id = "workflow_executor"
     version = "1.0.0"
 

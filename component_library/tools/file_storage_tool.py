@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import base64
+import os
 from pathlib import Path
 from typing import Any
 
 import structlog
 
-from component_library.interfaces import ComponentHealth, ToolIntegration
+from component_library.interfaces import (
+    ComponentHealth,
+    ComponentInitializationError,
+    ToolIntegration,
+    strict_providers_enabled,
+)
 from component_library.registry import register
 from component_library.tools.adapter_runtime import InMemoryProviderAdapter
 
@@ -22,6 +28,16 @@ logger = structlog.get_logger(__name__)
 
 @register("file_storage_tool")
 class FileStorageTool(ToolIntegration):
+    config_schema = {
+        "provider": {"type": "str", "required": False, "description": "Storage backend: s3 | local | memory.", "default": "local"},
+        "tenant_id": {"type": "str", "required": False, "description": "Tenant prefix for storage isolation.", "default": "default-tenant"},
+        "bucket": {"type": "str", "required": False, "description": "S3/MinIO bucket name.", "default": "forge-artifacts"},
+        "root_dir": {"type": "str", "required": False, "description": "Local filesystem root for local storage.", "default": ".forge_storage"},
+        "endpoint_url": {"type": "str", "required": False, "description": "S3-compatible endpoint (e.g. http://minio:9000).", "default": ""},
+        "aws_access_key_id": {"type": "str", "required": False, "description": "S3 access key override.", "default": ""},
+        "aws_secret_access_key": {"type": "str", "required": False, "description": "S3 secret key override.", "default": ""},
+        "region_name": {"type": "str", "required": False, "description": "S3 region name.", "default": ""},
+    }
     component_id = "file_storage_tool"
     version = "1.0.0"
 
@@ -33,19 +49,41 @@ class FileStorageTool(ToolIntegration):
         self._adapter = InMemoryProviderAdapter(self._provider)
         self._memory_store: dict[str, bytes] = {}
         self._s3_client = None
-        if self._provider == "s3" and boto3 is not None:
+        s3_access_key = str(config.get("aws_access_key_id") or os.getenv("AWS_ACCESS_KEY_ID") or "")
+        s3_secret_key = str(config.get("aws_secret_access_key") or os.getenv("AWS_SECRET_ACCESS_KEY") or "")
+        if self._provider == "s3" and boto3 is not None and s3_access_key and s3_secret_key:
             self._s3_client = boto3.client(
                 "s3",
                 endpoint_url=config.get("endpoint_url"),
-                aws_access_key_id=config.get("aws_access_key_id"),
-                aws_secret_access_key=config.get("aws_secret_access_key"),
+                aws_access_key_id=s3_access_key,
+                aws_secret_access_key=s3_secret_key,
                 region_name=config.get("region_name"),
             )
+        self._fallback_active = self._provider == "s3" and self._s3_client is None
+        if self._fallback_active:
+            logger.warning(
+                "component_fallback_active",
+                component="file_storage_tool",
+                reason=(
+                    "S3 provider requested but boto3 not installed or credentials missing; "
+                    "using local storage"
+                ),
+            )
+            if strict_providers_enabled():
+                raise ComponentInitializationError(
+                    "file_storage_tool: boto3 and S3 credentials required when "
+                    "FORGE_STRICT_PROVIDERS=true"
+                )
         self._root.mkdir(parents=True, exist_ok=True)
 
     async def health_check(self) -> ComponentHealth:
-        mode = "s3" if self._s3_client is not None else "local"
-        return ComponentHealth(healthy=True, detail=f"provider={self._provider}; mode={mode}")
+        if self._fallback_active:
+            return ComponentHealth(
+                healthy=False,
+                detail="fallback_mode: s3 requested but boto3 unavailable; using local filesystem",
+            )
+        mode = "s3" if self._s3_client is not None else self._provider
+        return ComponentHealth(healthy=True, detail=f"provider={mode}; tenant={self._tenant_id}")
 
     def get_test_suite(self) -> list[str]:
         return ["tests/components/tools/test_file_storage_tool.py"]

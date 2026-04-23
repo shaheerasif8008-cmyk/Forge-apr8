@@ -13,6 +13,9 @@ from component_library.work.schemas import ConfidenceInput, ConfidenceReport
 
 @register("confidence_scorer")
 class ConfidenceScorer(QualityModule):
+    config_schema = {
+        "router": {"type": "object", "required": False, "description": "Optional model/router for future model-assisted confidence scoring.", "default": None},
+    }
     component_id = "confidence_scorer"
     version = "1.0.0"
 

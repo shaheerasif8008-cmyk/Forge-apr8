@@ -16,6 +16,11 @@ from component_library.work.schemas import LegalIntakeExtraction, LegalIntakeInp
 
 @register("text_processor")
 class TextProcessor(WorkCapability):
+    config_schema = {
+        "model_client": {"type": "object", "required": False, "description": "Optional model client for LLM-backed extraction.", "default": None},
+        "fallback_mode": {"type": "str", "required": False, "description": "Fallback extraction mode when no model client is used.", "default": "deterministic"},
+        "force_llm": {"type": "bool", "required": False, "description": "Force LLM extraction when a model client is configured.", "default": False},
+    }
     component_id = "text_processor"
     version = "1.0.0"
 

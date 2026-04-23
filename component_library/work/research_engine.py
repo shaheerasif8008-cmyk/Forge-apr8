@@ -20,6 +20,14 @@ logger = structlog.get_logger(__name__)
 
 @register("research_engine")
 class ResearchEngine(WorkCapability):
+    config_schema = {
+        "search_tool": {"type": "object", "required": False, "description": "Search tool used for web research.", "default": None},
+        "knowledge_base": {"type": "object", "required": False, "description": "Knowledge base used for internal retrieval.", "default": None},
+        "document_ingestion": {"type": "object", "required": False, "description": "Document ingestion tool used for source text extraction.", "default": None},
+        "model_client": {"type": "object", "required": False, "description": "Optional model client for LLM-backed synthesis.", "default": None},
+        "fallback_mode": {"type": "str", "required": False, "description": "Fallback synthesis mode when no model client is used.", "default": "deterministic"},
+        "force_llm": {"type": "bool", "required": False, "description": "Force LLM synthesis when a model client is configured.", "default": False},
+    }
     component_id = "research_engine"
     version = "1.0.0"
 

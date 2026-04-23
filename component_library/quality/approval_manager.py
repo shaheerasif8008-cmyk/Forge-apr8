@@ -17,6 +17,9 @@ class ApprovalAssessment(BaseModel):
 
 @register("approval_manager")
 class ApprovalManager(QualityModule):
+    config_schema = {
+        "default_required": {"type": "bool", "required": False, "description": "Default approval requirement when input does not specify one.", "default": False},
+    }
     component_id = "approval_manager"
     version = "1.0.0"
 

@@ -17,6 +17,12 @@ from employee_runtime.shared.orm import ReasoningRecordRow
 
 @register("explainability")
 class Explainability(QualityModule):
+    config_schema = {
+        "session_factory": {"type": "object", "required": False, "description": "SQLAlchemy async_sessionmaker for persistent reasoning records; omit for memory.", "default": None},
+        "employee_id": {"type": "str", "required": False, "description": "Employee identifier used to scope reasoning records.", "default": "employee-runtime"},
+        "org_id": {"type": "str", "required": False, "description": "Organization identifier used to scope reasoning records.", "default": ""},
+        "audit_logger": {"type": "object", "required": False, "description": "Optional async audit logger callable.", "default": None},
+    }
     component_id = "explainability"
     version = "1.0.0"
 

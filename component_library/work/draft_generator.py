@@ -16,6 +16,12 @@ from component_library.work.schemas import DraftInput, IntakeBrief
 
 @register("draft_generator")
 class DraftGenerator(WorkCapability):
+    config_schema = {
+        "default_attorney": {"type": "str", "required": False, "description": "Default reviewer/attorney name used in generated drafts.", "default": "Review Attorney"},
+        "model_client": {"type": "object", "required": False, "description": "Optional model client for LLM-backed drafting.", "default": None},
+        "fallback_mode": {"type": "str", "required": False, "description": "Fallback drafting mode when no model client is used.", "default": "deterministic"},
+        "force_llm": {"type": "bool", "required": False, "description": "Force LLM drafting when a model client is configured.", "default": False},
+    }
     component_id = "draft_generator"
     version = "1.0.0"
 

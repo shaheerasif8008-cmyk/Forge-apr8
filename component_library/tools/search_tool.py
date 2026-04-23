@@ -11,7 +11,12 @@ import anyio
 import httpx
 import structlog
 
-from component_library.interfaces import ComponentHealth, ToolIntegration
+from component_library.interfaces import (
+    ComponentHealth,
+    ComponentInitializationError,
+    ToolIntegration,
+    strict_providers_enabled,
+)
 from component_library.registry import register
 from component_library.tools.adapter_runtime import InMemoryProviderAdapter
 
@@ -20,6 +25,14 @@ logger = structlog.get_logger(__name__)
 
 @register("search_tool")
 class SearchTool(ToolIntegration):
+    config_schema = {
+        "provider": {"type": "str", "required": False, "description": "Search backend identifier: tavily or fixture.", "default": "fixture"},
+        "tavily_api_key": {"type": "str", "required": False, "description": "Tavily API key; omit to use local fixtures (dev only).", "default": ""},
+        "fixtures": {"type": "list", "required": False, "description": "Local fixture search results used when Tavily is unavailable.", "default": []},
+        "max_results": {"type": "int", "required": False, "description": "Maximum search results to return.", "default": 5},
+        "rate_limit_seconds": {"type": "float", "required": False, "description": "Minimum seconds between Tavily calls.", "default": 0.0},
+        "timeout": {"type": "float", "required": False, "description": "HTTP timeout for Tavily calls in seconds.", "default": 20.0},
+    }
     component_id = "search_tool"
     version = "1.0.0"
 
@@ -33,8 +46,24 @@ class SearchTool(ToolIntegration):
         self._timeout = float(config.get("timeout", 20.0))
         self._last_call_at = 0.0
         self._adapter = InMemoryProviderAdapter(self._provider, initial_state={"fixtures": self._fixtures})
+        self._fallback_active = not bool(self._api_key)
+        if self._fallback_active:
+            logger.warning(
+                "component_fallback_active",
+                component="search_tool",
+                reason="TAVILY_API_KEY not set; using fixture results",
+            )
+            if strict_providers_enabled():
+                raise ComponentInitializationError(
+                    "search_tool: TAVILY_API_KEY required when FORGE_STRICT_PROVIDERS=true"
+                )
 
     async def health_check(self) -> ComponentHealth:
+        if self._fallback_active:
+            return ComponentHealth(
+                healthy=False,
+                detail="fallback_mode: no TAVILY_API_KEY; returning fixtures",
+            )
         mode = "tavily" if self._api_key else "fixture"
         return ComponentHealth(healthy=True, detail=f"provider={self._provider}; mode={mode}")
 

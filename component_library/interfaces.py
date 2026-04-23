@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel
 
@@ -25,6 +26,14 @@ class BaseComponent(ABC):
     component_id: str
     version: str
     category: str  # models | work | tools | data | quality
+    config_schema: ClassVar[dict[str, dict[str, object]]] = {
+        "enabled": {
+            "type": "bool",
+            "required": False,
+            "description": "Whether this component is enabled in the assembled employee package.",
+            "default": True,
+        }
+    }
 
     @abstractmethod
     async def initialize(self, config: dict[str, Any]) -> None:
@@ -77,3 +86,17 @@ class QualityModule(BaseComponent):
     @abstractmethod
     async def evaluate(self, input_data: Any) -> BaseModel:
         """Evaluate some input and return a structured assessment."""
+
+
+class ComponentInitializationError(RuntimeError):
+    """Raised when a component cannot initialize its real provider and strict mode is on."""
+
+
+def strict_providers_enabled() -> bool:
+    """Return whether provider fallbacks should fail fast for shipped components."""
+    return os.environ.get("FORGE_STRICT_PROVIDERS", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }

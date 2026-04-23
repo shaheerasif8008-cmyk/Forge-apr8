@@ -19,6 +19,9 @@ from employee_runtime.shared.orm import AuditEventRow
 
 @register("audit_system")
 class AuditSystem(QualityModule):
+    config_schema = {
+        "session_factory": {"type": "object", "required": False, "description": "SQLAlchemy async_sessionmaker for persistent audit events; omit for memory.", "default": None},
+    }
     component_id = "audit_system"
     version = "1.0.0"
 

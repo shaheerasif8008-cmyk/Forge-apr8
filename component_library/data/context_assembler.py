@@ -15,6 +15,14 @@ from employee_runtime.shared.orm import MessageRow
 
 @register("context_assembler")
 class ContextAssembler(DataSource):
+    config_schema = {
+        "session_factory": {"type": "object", "required": False, "description": "SQLAlchemy async_sessionmaker for persistence-backed context.", "default": None},
+        "operational_memory": {"type": "object", "required": False, "description": "Operational memory component used for retrieved facts.", "default": None},
+        "conversation_repository": {"type": "object", "required": False, "description": "Conversation repository used for recent dialogue context.", "default": None},
+        "employee_id": {"type": "str", "required": False, "description": "Employee identifier for scoped context lookup.", "default": ""},
+        "system_identity": {"type": "str", "required": False, "description": "Fallback system identity when identity layers are absent.", "default": ""},
+        "identity_layers": {"type": "dict", "required": False, "description": "Layered employee identity prompt sections.", "default": {}},
+    }
     component_id = "context_assembler"
     version = "1.0.0"
 

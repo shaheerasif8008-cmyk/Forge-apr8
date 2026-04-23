@@ -47,6 +47,13 @@ class AnthropicProvider(BaseComponent):
     Retries on transient errors (429, 503) with exponential backoff (max 3 tries).
     """
 
+    config_schema = {
+        "model": {"type": "str", "required": False, "description": "litellm Anthropic model string.", "default": "anthropic/claude-3-5-sonnet-20241022"},
+        "max_tokens": {"type": "int", "required": False, "description": "Maximum output tokens per call.", "default": 2048},
+        "temperature": {"type": "float", "required": False, "description": "Sampling temperature for completions.", "default": 0.0},
+        "timeout": {"type": "int", "required": False, "description": "Request timeout in seconds.", "default": 60},
+        "api_key": {"type": "str", "required": False, "description": "Optional Anthropic API key override.", "default": ""},
+    }
     component_id = "anthropic_provider"
     version = "1.0.0"
     category = "models"

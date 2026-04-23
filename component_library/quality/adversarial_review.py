@@ -16,6 +16,11 @@ from employee_runtime.modules.deliberation import (
 
 @register("adversarial_review")
 class AdversarialReview(QualityModule):
+    config_schema = {
+        "deliberation_council": {"type": "object", "required": False, "description": "CouncilConfig overrides; see DeliberationCouncil for full schema.", "default": {}},
+        "model_client": {"type": "object", "required": False, "description": "Optional model client used by deliberation roles.", "default": None},
+        "audit_logger": {"type": "object", "required": False, "description": "Optional async audit logger callable.", "default": None},
+    }
     component_id = "adversarial_review"
     version = "1.0.0"
 

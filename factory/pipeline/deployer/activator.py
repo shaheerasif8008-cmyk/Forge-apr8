@@ -35,11 +35,14 @@ async def activate(deployment: Deployment) -> Deployment:
     connector = Connector()
     if deployment.integrations:
         deadline = asyncio.get_event_loop().time() + 3600
+        poll_attempt = 0
         while asyncio.get_event_loop().time() < deadline:
             deployment = await connector.refresh_statuses(deployment)
             if all_integrations_connected(deployment):
                 break
-            await asyncio.sleep(0.01)
+            poll_interval = min(5.0, 0.5 * (2 ** min(poll_attempt, 6)))
+            poll_attempt += 1
+            await asyncio.sleep(poll_interval)
 
         if not all_integrations_connected(deployment):
             deployment.status = DeploymentStatus.PENDING_CLIENT_ACTION

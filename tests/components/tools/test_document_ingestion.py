@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+import component_library.tools.document_ingestion as document_ingestion_module
+from component_library.interfaces import ComponentInitializationError
 from component_library.tools.document_ingestion import DocumentIngestion
 
 
@@ -40,3 +42,27 @@ async def test_document_ingestion_rejects_unknown_action() -> None:
     await tool.initialize({})
     with pytest.raises(ValueError, match="Unsupported document ingestion action"):
         await tool.invoke("unknown", {})
+
+
+@pytest.mark.anyio
+async def test_document_ingestion_reports_unhealthy_parse_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(document_ingestion_module, "partition", None)
+    tool = DocumentIngestion()
+    await tool.initialize({})
+
+    health = await tool.health_check()
+
+    assert health.healthy is False
+    assert "fallback_mode" in health.detail
+
+
+@pytest.mark.anyio
+async def test_document_ingestion_strict_mode_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(document_ingestion_module, "partition", None)
+    monkeypatch.setenv("FORGE_STRICT_PROVIDERS", "true")
+    tool = DocumentIngestion()
+
+    with pytest.raises(ComponentInitializationError):
+        await tool.initialize({})

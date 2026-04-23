@@ -18,6 +18,14 @@ logger = structlog.get_logger(__name__)
 
 @register("custom_api_tool")
 class CustomApiTool(ToolIntegration):
+    config_schema = {
+        "provider": {"type": "str", "required": False, "description": "API provider mode, normally http.", "default": "http"},
+        "base_url": {"type": "str", "required": True, "description": "Base URL for the custom client API.", "default": ""},
+        "auth_type": {"type": "str", "required": False, "description": "Auth mode: none | bearer | basic | api_key.", "default": "none"},
+        "auth_config": {"type": "dict", "required": False, "description": "Auth details for selected auth_type.", "default": {}},
+        "timeout": {"type": "float", "required": False, "description": "HTTP timeout in seconds.", "default": 20.0},
+        "max_retries": {"type": "int", "required": False, "description": "Retries for transient rate-limit/server failures.", "default": 2},
+    }
     component_id = "custom_api_tool"
     version = "1.0.0"
 

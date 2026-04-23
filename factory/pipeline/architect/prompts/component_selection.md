@@ -20,3 +20,15 @@ Return strict JSON matching:
     "rationale": "why this component is needed"
   }
 ]
+
+The component catalog JSON provided as input now includes `config_schema_json` for each component.
+This is a JSON object where each key is a config parameter, with:
+- `type`: Python type name
+- `required`: whether the component needs this key to function
+- `description`: what the parameter controls
+- `default`: value used when omitted
+
+When generating the `config` object for each selected component, use the schema to populate
+appropriate values. Required fields must always be set. Optional fields should be set when
+the employee requirements specify relevant constraints, such as setting `primary_model` when
+requirements mention a specific model preference.

@@ -20,6 +20,11 @@ class Person(BaseModel):
 
 @register("org_context")
 class OrgContext(DataSource):
+    config_schema = {
+        "people": {"type": "list", "required": False, "description": "People, roles, emails, and communication preferences in the org map.", "default": []},
+        "escalation_chain": {"type": "list", "required": False, "description": "Ordered escalation contacts or roles.", "default": []},
+        "firm_info": {"type": "dict", "required": False, "description": "Organization-specific metadata and operating context.", "default": {}},
+    }
     component_id = "org_context"
     version = "1.0.0"
 

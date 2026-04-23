@@ -14,6 +14,13 @@ from component_library.registry import register
 
 @register("working_memory")
 class WorkingMemory(DataSource):
+    config_schema = {
+        "org_id": {"type": "str", "required": False, "description": "Organization scope for working-memory keys.", "default": ""},
+        "employee_id": {"type": "str", "required": False, "description": "Employee scope for working-memory keys.", "default": ""},
+        "ttl_seconds": {"type": "int", "required": False, "description": "Default TTL for ephemeral working-memory entries.", "default": 86400},
+        "redis_url": {"type": "str", "required": False, "description": "Redis URL for distributed working memory; omit for in-memory.", "default": ""},
+        "redis_client": {"type": "object", "required": False, "description": "Preconfigured Redis-like client override.", "default": None},
+    }
     component_id = "working_memory"
     version = "1.0.0"
 

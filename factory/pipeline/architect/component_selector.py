@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import structlog
+
 from component_library.models.anthropic_provider import AnthropicProvider
 from component_library.registry import describe_all_components
 from component_library.status import is_component_production_ready
@@ -65,6 +67,7 @@ TOOL_MAP: dict[str, str] = {
     "search": "search_tool",
 }
 PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "component_selection.md"
+logger = structlog.get_logger(__name__)
 
 
 class ArchitectError(RuntimeError):
@@ -82,7 +85,16 @@ async def select_components(requirements: EmployeeRequirements) -> list[Selected
     """
     settings = get_settings()
     if settings.use_llm_architect:
-        return await _select_components_with_llm(requirements)
+        try:
+            return await _select_components_with_llm(requirements)
+        except ArchitectError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "architect_llm_selector_fallback",
+                reason=str(exc),
+                fallback="rule_based_component_selector",
+            )
     return _select_components_with_fallback(requirements)
 
 

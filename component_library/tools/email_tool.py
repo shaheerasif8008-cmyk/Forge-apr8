@@ -11,6 +11,12 @@ from component_library.tools.adapter_runtime import InMemoryProviderAdapter
 
 @register("email_tool")
 class EmailTool(ToolIntegration):
+    config_schema = {
+        "provider": {"type": "str", "required": False, "description": "Email provider: gmail | outlook | fixture.", "default": "fixture"},
+        "composio_api_key": {"type": "str", "required": False, "description": "Composio API key for Gmail/Outlook integration.", "default": ""},
+        "tenant_id": {"type": "str", "required": False, "description": "Tenant scoping for email isolation.", "default": "default-tenant"},
+        "fixtures": {"type": "list", "required": False, "description": "Fixture inbox messages for dev/test mode.", "default": []},
+    }
     component_id = "email_tool"
     version = "1.0.0"
 

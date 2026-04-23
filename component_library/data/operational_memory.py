@@ -15,6 +15,11 @@ from employee_runtime.shared.orm import OperationalMemoryRow
 
 @register("operational_memory")
 class OperationalMemory(DataSource):
+    config_schema = {
+        "org_id": {"type": "str", "required": False, "description": "Organization scope for stored operational facts.", "default": ""},
+        "employee_id": {"type": "str", "required": False, "description": "Employee scope for stored operational facts.", "default": ""},
+        "session_factory": {"type": "object", "required": False, "description": "SQLAlchemy async_sessionmaker for persistent storage; omit for memory.", "default": None},
+    }
     component_id = "operational_memory"
     version = "1.0.0"
 

@@ -20,6 +20,12 @@ from component_library.work.schemas import (
 
 @register("document_analyzer")
 class DocumentAnalyzer(WorkCapability):
+    config_schema = {
+        "practice_areas": {"type": "list", "required": False, "description": "Practice areas or domains used for qualification analysis.", "default": []},
+        "model_client": {"type": "object", "required": False, "description": "Optional model client for LLM-backed analysis.", "default": None},
+        "fallback_mode": {"type": "str", "required": False, "description": "Fallback analysis mode when no model client is used.", "default": "deterministic"},
+        "force_llm": {"type": "bool", "required": False, "description": "Force LLM analysis when a model client is configured.", "default": False},
+    }
     component_id = "document_analyzer"
     version = "1.0.0"
 

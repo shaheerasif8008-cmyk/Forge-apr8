@@ -57,6 +57,15 @@ def _load_guardrails_validators() -> dict[str, type[Any]] | None:
 
 @register("input_protection")
 class InputProtection(QualityModule):
+    config_schema = {
+        "validators": {"type": "list", "required": False, "description": "Explicit validator definitions overriding defaults.", "default": []},
+        "validators_path": {"type": "str", "required": False, "description": "YAML file containing validator definitions.", "default": ""},
+        "prompt_injection_patterns": {"type": "list", "required": False, "description": "Regex patterns used by prompt-injection fallback detection.", "default": []},
+        "toxic_terms": {"type": "list", "required": False, "description": "Terms used by fallback toxicity detection.", "default": ["idiot", "stupid", "hate you"]},
+        "injection_threshold": {"type": "float", "required": False, "description": "Confidence threshold for prompt injection detection (0.0-1.0).", "default": 0.8},
+        "pii_detection": {"type": "bool", "required": False, "description": "Enable PII detection via Guardrails/fallback validators.", "default": True},
+        "toxicity_detection": {"type": "bool", "required": False, "description": "Enable toxicity screening.", "default": True},
+    }
     component_id = "input_protection"
     version = "1.0.0"
 

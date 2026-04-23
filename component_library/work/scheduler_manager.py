@@ -14,6 +14,9 @@ from component_library.work.schemas import ExecutiveAssistantInput, ExecutiveAss
 
 @register("scheduler_manager")
 class SchedulerManager(WorkCapability):
+    config_schema = {
+        "timezone": {"type": "str", "required": False, "description": "Default IANA timezone for scheduling operations.", "default": "America/New_York"},
+    }
     component_id = "scheduler_manager"
     version = "1.0.0"
 

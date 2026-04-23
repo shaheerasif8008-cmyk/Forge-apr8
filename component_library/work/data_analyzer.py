@@ -26,6 +26,12 @@ logger = structlog.get_logger(__name__)
 
 @register("data_analyzer")
 class DataAnalyzer(WorkCapability):
+    config_schema = {
+        "model_client": {"type": "object", "required": False, "description": "Optional model client for LLM-backed summaries.", "default": None},
+        "query_runner": {"type": "object", "required": False, "description": "Optional callable/query runner for external structured data.", "default": None},
+        "fallback_mode": {"type": "str", "required": False, "description": "Fallback analysis mode when no model client is used.", "default": "deterministic"},
+        "force_llm": {"type": "bool", "required": False, "description": "Force LLM summary generation when a model client is configured.", "default": False},
+    }
     component_id = "data_analyzer"
     version = "1.0.0"
 

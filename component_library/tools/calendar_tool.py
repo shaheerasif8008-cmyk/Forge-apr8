@@ -11,6 +11,10 @@ from component_library.tools.adapter_runtime import InMemoryProviderAdapter
 
 @register("calendar_tool")
 class CalendarTool(ToolIntegration):
+    config_schema = {
+        "provider": {"type": "str", "required": False, "description": "Calendar provider: google | outlook | fixture.", "default": "fixture"},
+        "fixtures": {"type": "list", "required": False, "description": "Fixture calendar events for dev/test mode.", "default": []},
+    }
     component_id = "calendar_tool"
     version = "1.0.0"
 

@@ -25,6 +25,16 @@ class _SignalAssessment(BaseModel):
 
 @register("monitor_scanner")
 class MonitorScanner(WorkCapability):
+    config_schema = {
+        "email_tool": {"type": "object", "required": False, "description": "Email tool used when scanning inbox sources.", "default": None},
+        "search_tool": {"type": "object", "required": False, "description": "Search tool used when scanning web sources.", "default": None},
+        "calendar_tool": {"type": "object", "required": False, "description": "Calendar tool used when scanning event sources.", "default": None},
+        "file_storage_tool": {"type": "object", "required": False, "description": "File storage tool used when scanning file sources.", "default": None},
+        "custom_api_tool": {"type": "object", "required": False, "description": "Custom API tool used when scanning API sources.", "default": None},
+        "model_client": {"type": "object", "required": False, "description": "Optional model client for LLM-backed signal classification.", "default": None},
+        "fallback_mode": {"type": "str", "required": False, "description": "Fallback classification mode when no model client is used.", "default": "deterministic"},
+        "force_llm": {"type": "bool", "required": False, "description": "Force LLM signal classification when a model client is configured.", "default": False},
+    }
     component_id = "monitor_scanner"
     version = "1.0.0"
 

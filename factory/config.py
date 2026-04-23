@@ -72,10 +72,24 @@ class FactorySettings(BaseSettings):
     # ── Tool integrations ─────────────────────────────────────────
     tavily_api_key: str = Field("")
     composio_api_key: str = Field("")
+    forge_strict_providers: bool = Field(
+        False,
+        description=(
+            "When True, components raise ComponentInitializationError instead of "
+            "silently degrading to fallback mode. Set True in staging/production."
+        ),
+    )
     infisical_client_id: str = Field("")
     infisical_client_secret: str = Field("")
     railway_api_token: str = Field("")
-    use_llm_architect: bool = Field(False)
+    use_llm_architect: bool = Field(
+        True,
+        description=(
+            "Use LLM-driven component selection (True) or rule-based fallback (False). "
+            "Defaults True — Forge is a factory, Architect should be autonomous. "
+            "Set False only if LLM calls are unavailable or for deterministic testing."
+        ),
+    )
 
     @property
     def is_production(self) -> bool:
