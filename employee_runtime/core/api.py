@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -53,15 +54,15 @@ import component_library.work.scheduler_manager  # noqa: F401
 import component_library.work.text_processor  # noqa: F401
 import component_library.work.workflow_executor  # noqa: F401
 from component_library.component_factory import create_components
-from employee_runtime.core.conversation_repository import (
-    ConversationRepository,
-    InMemoryConversationRepository,
-    SqlAlchemyConversationRepository,
-)
 from employee_runtime.core.auth import (
     authorize_request,
     authorize_websocket,
     runtime_auth_config_from_dict,
+)
+from employee_runtime.core.conversation_repository import (
+    ConversationRepository,
+    InMemoryConversationRepository,
+    SqlAlchemyConversationRepository,
 )
 from employee_runtime.core.engine import EmployeeEngine
 from employee_runtime.core.runtime_db import initialize_runtime_database, normalize_org_uuid
@@ -70,10 +71,10 @@ from employee_runtime.core.task_repository import (
     SqlAlchemyTaskRepository,
     TaskRepository,
 )
-from employee_runtime.shared.orm import KnowledgeChunkRow
 from employee_runtime.core.tool_broker import ToolBroker
 from employee_runtime.modules.behavior_manager import BehaviorManager
 from employee_runtime.modules.pulse_engine import DailyLoopRequest, PulseEngine
+from employee_runtime.shared.orm import KnowledgeChunkRow
 
 
 class TaskRequest(BaseModel):
@@ -1325,6 +1326,14 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        if (
+            os.environ.get("ENVIRONMENT", "development") == "production"
+            and not os.environ.get("EMPLOYEE_API_KEY", "").strip()
+        ):
+            raise RuntimeError(
+                "EMPLOYEE_API_KEY must be set in production. "
+                'Generate one: python -c "import secrets; print(secrets.token_hex(32))"'
+            )
         await service.initialize()
         try:
             yield

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -30,10 +31,13 @@ def create_factory_token(
     extra_claims: dict[str, Any] | None = None,
 ) -> str:
     settings = get_settings()
+    now = datetime.now(UTC)
     payload = {
         "sub": subject,
         "org_ids": [str(org_id) for org_id in org_ids],
         "roles": list(roles or ["factory:admin"]),
+        "iat": now,
+        "exp": now + timedelta(minutes=settings.jwt_expiration_minutes),
         **(extra_claims or {}),
     }
     return jwt.encode(payload, settings.factory_jwt_secret, algorithm=settings.jwt_algorithm)

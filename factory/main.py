@@ -13,6 +13,7 @@ from factory.api import api_router
 from factory.auth import require_factory_auth
 from factory.config import get_settings
 from factory.database import close_engine, init_db_schema, init_engine
+
 # Eager-import all ORM/Pydantic models so import-time errors surface at container start,
 # not on first request. Do not remove — this protects against lazy-import regressions.
 from factory.models import client as _client_module  # noqa: F401
@@ -30,6 +31,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ),
     )
     init_engine()
+    default_secrets = {"change-me", "forge-factory-dev-secret", "secret", ""}
+    if settings.is_production and settings.factory_jwt_secret in default_secrets:
+        raise RuntimeError(
+            "FACTORY_JWT_SECRET must be set to a strong random value in production. "
+            'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
+        )
     if settings.auto_init_db:
         await init_db_schema()
     logger.info("forge_factory_startup", environment=settings.environment)
@@ -49,7 +56,8 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def authenticate_factory_requests(request: Request, call_next):
-        if not request.url.path.startswith("/api/v1") or request.url.path == "/api/v1/health":
+        public_paths = {"/api/v1/health", "/api/v1/auth/token"}
+        if not request.url.path.startswith("/api/v1") or request.url.path in public_paths:
             return await call_next(request)
         try:
             await require_factory_auth(request)
