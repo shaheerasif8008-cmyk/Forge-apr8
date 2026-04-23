@@ -56,7 +56,12 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def authenticate_factory_requests(request: Request, call_next):
-        public_paths = {"/api/v1/health", "/api/v1/auth/token"}
+        public_paths = {
+            "/api/v1/health",
+            "/api/v1/ready",
+            "/api/v1/recovery",
+            "/api/v1/auth/token",
+        }
         if not request.url.path.startswith("/api/v1") or request.url.path in public_paths:
             return await call_next(request)
         try:
@@ -70,6 +75,10 @@ def create_app() -> FastAPI:
     @app.get("/", tags=["meta"])
     async def root() -> dict[str, str]:
         return {"service": "forge-factory", "docs": "/docs"}
+
+    @app.get("/health", tags=["meta"])
+    async def liveness_root() -> dict[str, str]:
+        return {"status": "ok", "service": "forge-factory", "version": "0.2.0"}
 
     @app.exception_handler(Exception)
     async def unhandled_error(_: Request, exc: Exception) -> JSONResponse:

@@ -151,6 +151,11 @@ async def test_running_tasks_are_marked_interrupted_on_restart() -> None:
         assert recovery.status_code == 200
         assert task_id in recovery.json()["startup_summary"]["interrupted_task_ids"]
 
+        explicit_recovery = await client.get("/api/v1/recovery")
+        assert explicit_recovery.status_code == 200
+        assert explicit_recovery.json()["interrupted_tasks"] == 1
+        assert task_id in explicit_recovery.json()["task_ids"]
+
         history = await client.get("/api/v1/chat/history")
         assert history.status_code == 200
         messages = history.json()["messages"]
@@ -257,8 +262,16 @@ async def test_runtime_health_degrades_when_employee_local_db_fails() -> None:
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         health = await client.get("/health")
-        assert health.status_code == 503
-        assert health.json()["status"] == "degraded"
+        assert health.status_code == 200
+        assert health.json()["status"] == "ok"
+
+        readiness = await client.get("/api/v1/ready")
+        assert readiness.status_code == 503
+        assert readiness.json()["ready"] is False
+        assert any(
+            dependency["name"] == "runtime" and dependency["healthy"] is False
+            for dependency in readiness.json()["dependencies"]
+        )
 
         task = await client.post(
             "/api/v1/tasks",

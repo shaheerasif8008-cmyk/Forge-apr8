@@ -26,7 +26,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 
 import component_library.data.context_assembler  # noqa: F401
 import component_library.data.knowledge_base  # noqa: F401
@@ -1345,7 +1345,7 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
 
     @app.middleware("http")
     async def authenticate_api_requests(request: Request, call_next):
-        if request.url.path in {"/health", "/api/v1/health"}:
+        if request.url.path in {"/health", "/api/v1/health", "/api/v1/ready", "/api/v1/recovery"}:
             return await call_next(request)
         try:
             authorize_request(request, auth_config)
@@ -1354,15 +1354,7 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
         return await call_next(request)
 
     async def _health(response: Response) -> dict[str, str]:
-        await service.initialize()
-        if service.initialization_error:
-            response.status_code = 503
-            return {
-                "status": "degraded",
-                "employee_id": employee_id,
-                "detail": service.initialization_error,
-            }
-        await service.ensure_conversation()
+        _ = response
         return {"status": "ok", "employee_id": employee_id}
 
     @app.get("/health")
@@ -1372,6 +1364,51 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
     @app.get("/api/v1/health")
     async def health(response: Response) -> dict[str, str]:
         return await _health(response)
+
+    @app.get("/api/v1/ready")
+    async def employee_readiness(response: Response) -> dict[str, object]:
+        deps: list[dict[str, object]] = []
+        await service.initialize()
+
+        if service.initialization_error:
+            deps.append(
+                {
+                    "name": "runtime",
+                    "healthy": False,
+                    "detail": service.initialization_error,
+                }
+            )
+        else:
+            deps.append({"name": "runtime", "healthy": True})
+
+        if service._session_factory is None:
+            deps.append({"name": "postgres", "healthy": False, "detail": "session_factory not initialised"})
+        else:
+            try:
+                async with service._session_factory() as session:
+                    await session.execute(text("SELECT 1"))
+                deps.append({"name": "postgres", "healthy": True})
+            except Exception as exc:  # noqa: BLE001
+                deps.append({"name": "postgres", "healthy": False, "detail": str(exc)})
+
+        ready = all(bool(dep.get("healthy")) for dep in deps)
+        if not ready:
+            response.status_code = 503
+        return {"ready": ready, "dependencies": deps}
+
+    @app.get("/api/v1/recovery")
+    async def employee_recovery() -> dict[str, object]:
+        await service.initialize()
+        if service.task_repository is None:
+            return {"interrupted_tasks": -1, "detail": "task_repository not initialised"}
+        try:
+            interrupted = await service.task_repository.get_interrupted_tasks(employee_id=service.employee_id)
+            return {
+                "interrupted_tasks": len(interrupted),
+                "task_ids": [task.get("task_id") for task in interrupted],
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {"interrupted_tasks": -1, "detail": str(exc)}
 
     @app.get("/api/v1/meta")
     async def meta() -> dict[str, Any]:

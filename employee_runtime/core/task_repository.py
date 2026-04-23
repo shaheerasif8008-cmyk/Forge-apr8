@@ -54,6 +54,9 @@ class TaskRepository(Protocol):
     async def task_counts(self, employee_id: str) -> dict[str, int]:
         ...
 
+    async def get_interrupted_tasks(self, employee_id: str) -> list[dict[str, Any]]:
+        ...
+
 
 class InMemoryTaskRepository:
     def __init__(self, *, tasks: dict[str, dict[str, Any]] | None = None) -> None:
@@ -145,6 +148,14 @@ class InMemoryTaskRepository:
             if task is not None:
                 counts[str(task.get("status", "queued"))] += 1
         return dict(counts)
+
+    async def get_interrupted_tasks(self, employee_id: str) -> list[dict[str, Any]]:
+        return [
+            deepcopy(task)
+            for task_id in self._employee_index.get(employee_id, [])
+            if (task := self._tasks.get(task_id)) is not None
+            and task.get("status") == "interrupted"
+        ]
 
 
 class SqlAlchemyTaskRepository:
@@ -245,6 +256,16 @@ class SqlAlchemyTaskRepository:
             for (status,) in result.all():
                 counts[str(status)] += 1
         return dict(counts)
+
+    async def get_interrupted_tasks(self, employee_id: str) -> list[dict[str, Any]]:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                self._scope(select(EmployeeTaskRow))
+                .where(EmployeeTaskRow.employee_id == employee_id)
+                .where(EmployeeTaskRow.status == "interrupted")
+                .order_by(EmployeeTaskRow.updated_at.desc())
+            )
+            return [_task_payload(row, employee_id) for row in result.scalars().all()]
 
     def _scope(self, stmt: Select[Any]) -> Select[Any]:
         if self._org_id is None:
