@@ -11,9 +11,13 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from employee_runtime.core.task_state_machine import (
+    INFLIGHT_STATUSES as INFLIGHT_TASK_STATUSES,
+)
+from employee_runtime.core.task_state_machine import TaskStateMachine
 from employee_runtime.shared.orm import EmployeeTaskRow
 
-INFLIGHT_TASK_STATUSES = {"queued", "running"}
+_state_machine = TaskStateMachine()
 
 
 class TaskRepository(Protocol):
@@ -104,6 +108,8 @@ class InMemoryTaskRepository:
         task = self._tasks.get(task_id)
         if task is None or task.get("employee_id") != employee_id:
             raise KeyError(task_id)
+        if "status" in changes:
+            _state_machine.validate(str(task.get("status", "queued")), str(changes["status"]))
         task.update(deepcopy(changes))
         task["updated_at"] = datetime.now(UTC).isoformat()
         return deepcopy(task)
@@ -192,6 +198,8 @@ class SqlAlchemyTaskRepository:
             row = result.scalar_one_or_none()
             if row is None:
                 raise KeyError(task_id)
+            if "status" in changes:
+                _state_machine.validate(str(row.status), str(changes["status"]))
             _apply_changes(row, employee_id, changes)
             await session.commit()
             await session.refresh(row)
@@ -222,7 +230,7 @@ class SqlAlchemyTaskRepository:
             rows = result.scalars().all()
             interrupted_at = datetime.now(UTC)
             for row in rows:
-                row.status = "interrupted"
+                row.status = "interrupted"  # Administrative override — bypasses state machine intentionally
                 row.interruption_reason = reason
                 row.completed_at = interrupted_at
             await session.commit()
