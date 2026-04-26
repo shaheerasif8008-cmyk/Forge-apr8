@@ -6,6 +6,8 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import structlog
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from factory.models.build import Build, BuildLog, BuildStatus
 from factory.pipeline.evaluator.behavioral_tests import run_behavioral_tests
