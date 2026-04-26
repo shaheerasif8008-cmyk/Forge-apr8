@@ -165,6 +165,8 @@ def _request_text(url: str, *, timeout: int = 10) -> tuple[int, str]:
             return response.status, response.read().decode()
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read().decode()
+    except (ConnectionResetError, TimeoutError, socket.timeout, urllib.error.URLError) as exc:
+        return 0, str(exc)
 
 
 def _docker_ready() -> tuple[bool, str]:

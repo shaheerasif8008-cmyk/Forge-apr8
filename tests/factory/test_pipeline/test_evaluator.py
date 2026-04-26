@@ -21,7 +21,7 @@ async def test_evaluator_runs_black_box_suites(sample_build, monkeypatch) -> Non
     async def fake_wait(url, timeout=60):
         return True
 
-    async def fake_suite(base_url):
+    async def fake_suite(base_url, *, auth_headers=None):
         return {"passed": True, "tests": 1, "failures": []}
 
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.find_free_port", lambda: 8123)
