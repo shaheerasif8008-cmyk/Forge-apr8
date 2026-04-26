@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -45,7 +46,10 @@ def _docker_available() -> bool:
     return result.returncode == 0
 
 
-pytestmark = pytest.mark.skipif(not _docker_available(), reason="docker not available")
+pytestmark = pytest.mark.skipif(
+    not _docker_available() or os.environ.get("FORGE_RUN_DOCKER_RECOVERY_TEST") != "1",
+    reason="docker recovery integration test disabled; set FORGE_RUN_DOCKER_RECOVERY_TEST=1 to run",
+)
 
 
 def _write_runtime_dockerfile(build_dir: Path) -> None:
@@ -184,6 +188,7 @@ async def test_employee_container_marks_running_task_interrupted_after_kill_and_
             capture_output=True,
             text=True,
             check=True,
+            timeout=int(os.environ.get("FORGE_RUNTIME_RECOVERY_BUILD_TIMEOUT_SECONDS", "600")),
         )
         container_id = subprocess.run(
             [

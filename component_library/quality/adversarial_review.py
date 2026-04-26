@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import structlog
+
 from component_library.interfaces import ComponentHealth, QualityModule
 from component_library.registry import register
 from employee_runtime.modules.deliberation import (
@@ -12,6 +14,8 @@ from employee_runtime.modules.deliberation import (
     Proposal,
     Verdict,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 @register("adversarial_review")
@@ -44,7 +48,21 @@ class AdversarialReview(QualityModule):
             context=payload.get("context", {}),
             risk_tier=str(payload.get("risk_tier", "medium")),
         )
-        return await self._council.deliberate(proposal, proposal.context)
+        try:
+            return await self._council.deliberate(proposal, proposal.context)
+        except Exception as exc:
+            logger.warning(
+                "adversarial_review_fallback",
+                proposal_id=proposal.proposal_id,
+                reason=str(exc),
+            )
+            return Verdict(
+                approved=False,
+                confidence=0.0,
+                majority_concerns=["Adversarial review unavailable; human review required."],
+                dissenting_views=[],
+                reasoning="Deliberation provider failed, so the proposal was not auto-approved.",
+            )
 
     def set_model_client(self, model_client: Any) -> None:
         self._model_client = model_client

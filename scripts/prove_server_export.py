@@ -349,7 +349,7 @@ def _wait_for_build(ctx: ProofContext) -> dict[str, Any]:
     while time.time() < deadline:
         try:
             build = _get_build(ctx)
-        except (TimeoutError, socket.timeout, urllib.error.URLError) as exc:
+        except (TimeoutError, OSError, socket.timeout, urllib.error.URLError) as exc:
             ctx.record("build_status_poll", healthy=False, detail=str(exc))
             time.sleep(20)
             continue
@@ -382,9 +382,7 @@ def _extract_bundle(ctx: ProofContext, build: dict[str, Any], bundle_dir_arg: st
                 break
     if not artifact_path:
         raise RuntimeError("No server package artifact path found in build payload.")
-    archive_path = Path(artifact_path)
-    if not archive_path.exists():
-        raise RuntimeError(f"Server package not found on disk: {archive_path}")
+    archive_path = _resolve_artifact_archive(ctx, artifact_path)
 
     target_dir = Path(bundle_dir_arg) if bundle_dir_arg else Path(tempfile.mkdtemp(prefix="forge-server-proof-"))
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -398,6 +396,26 @@ def _extract_bundle(ctx: ProofContext, build: dict[str, Any], bundle_dir_arg: st
     ctx.bundle_dir = str(target_dir)
     ctx.record("bundle_extract", artifact_path=ctx.artifact_path, bundle_dir=ctx.bundle_dir)
     return target_dir
+
+
+def _resolve_artifact_archive(ctx: ProofContext, artifact_path: str) -> Path:
+    archive_path = Path(artifact_path)
+    if archive_path.exists():
+        return archive_path
+
+    export_dir = Path(tempfile.mkdtemp(prefix="forge-server-artifact-"))
+    copied_path = export_dir / archive_path.name
+    result = _run(
+        ["docker", "compose", "cp", f"pipeline-worker:{artifact_path}", str(copied_path)],
+        timeout=120,
+    )
+    if result.returncode != 0 or not copied_path.exists():
+        raise RuntimeError(
+            "Server package not found on host or pipeline-worker container: "
+            f"{archive_path}; copy output={(result.stderr or result.stdout)[-1000:]}"
+        )
+    ctx.record("artifact_copy", source=f"pipeline-worker:{artifact_path}", copied_path=str(copied_path))
+    return copied_path
 
 
 def _write_bundle_env(ctx: ProofContext, bundle_dir: Path) -> None:

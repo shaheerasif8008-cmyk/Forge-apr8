@@ -42,6 +42,57 @@ async def test_document_analyzer_needs_review_case() -> None:
     assert result.qualification_decision == "needs_review"
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "email_text",
+    [
+        "My name is Sarah Johnson. I was injured in a car accident on February 15, 2026 and need help pursuing a personal injury claim. You can reach me at sarah.johnson@email.com.",
+        "My name is Priya Shah. Our company has a breach of contract dispute with North Coast Manufacturing over a supply agreement.",
+        "This is Elena Torres. I think my employer discriminated against me after I reported harassment at work.",
+        "My name is Dana Lee. I slipped at a grocery store and broke my wrist. The store manager was John Evans.",
+    ],
+)
+async def test_document_analyzer_qualifies_clear_evaluator_matters(email_text: str) -> None:
+    analyzer = DocumentAnalyzer()
+    await analyzer.initialize({"practice_areas": ["personal injury", "employment", "commercial dispute"]})
+    extraction = await _extract(email_text)
+    result = await analyzer.execute(AnalysisInput(extraction=extraction))
+
+    assert result.qualification_decision == "qualified"
+
+
+@pytest.mark.anyio
+async def test_document_analyzer_corrects_conservative_model_decision() -> None:
+    extraction = await _extract(
+        "My name is Dana Lee. I slipped at a grocery store and broke my wrist. The store manager was John Evans."
+    )
+    analyzer = DocumentAnalyzer()
+    await analyzer.initialize(
+        {
+            "practice_areas": ["personal injury", "employment", "commercial dispute"],
+            "force_llm": True,
+        }
+    )
+    analyzer.set_model_client(
+        _FakeRouter(
+            DocumentAnalyzerOutput(
+                summary="Conservative model summary.",
+                key_findings=["The prospect describes an injury at a grocery store."],
+                risk_flags=["Missing direct contact information for immediate follow-up."],
+                recommended_actions=["Request more information."],
+                qualification_decision="not_qualified",
+                qualification_reasoning="The model was too conservative.",
+                confidence=0.72,
+            )
+        )
+    )
+
+    result = await analyzer.execute(AnalysisInput(extraction=extraction))
+
+    assert result.qualification_decision == "qualified"
+    assert "Missing direct contact information" in result.risk_flags
+
+
 class _FakeRouter:
     component_id = "litellm_router"
 

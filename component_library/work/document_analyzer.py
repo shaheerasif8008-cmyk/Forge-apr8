@@ -28,12 +28,14 @@ class DocumentAnalyzer(WorkCapability):
     }
     component_id = "document_analyzer"
     version = "1.0.0"
+    _in_scope_matter_types = {"personal injury", "employment", "commercial dispute"}
+    _out_of_scope_matter_types = {"parking ticket", "family law", "real estate", "criminal defense"}
 
     async def initialize(self, config: dict[str, Any]) -> None:
         self._config = config
         self._practice_areas = config.get(
             "practice_areas",
-            ["personal injury", "employment", "commercial dispute", "real estate"],
+            ["personal injury", "employment", "commercial dispute"],
         )
         self._model_client = config.get("model_client")
         self._fallback_mode = str(config.get("fallback_mode", "deterministic"))
@@ -92,7 +94,7 @@ class DocumentAnalyzer(WorkCapability):
             f"EXTRACTION JSON:\n{json.dumps(extraction.model_dump(mode='json'), indent=2)}"
         )
         result = await self._call_structured_model(system_prompt, user_message)
-        return result.model_copy(
+        normalized = result.model_copy(
             update={
                 "summary": result.summary.strip(),
                 "key_findings": [item.strip() for item in result.key_findings if item.strip()],
@@ -103,6 +105,7 @@ class DocumentAnalyzer(WorkCapability):
                 "confidence": round(max(0.0, min(result.confidence, 1.0)), 2),
             }
         )
+        return self._apply_qualification_policy(extraction, normalized)
 
     async def _call_structured_model(
         self,
@@ -142,44 +145,12 @@ class DocumentAnalyzer(WorkCapability):
         if extraction.urgency in {"high", "urgent"}:
             key_findings.append(f"Urgency level is {extraction.urgency}.")
 
+        decision, risk_flags, recommended_actions = self._decide_qualification(
+            extraction,
+            risk_flags,
+            recommended_actions,
+        )
         practice_match = extraction.matter_type in self._practice_areas
-        if not extraction.matter_type:
-            risk_flags.append("Matter type is unclear.")
-        elif not practice_match and extraction.matter_type != "parking ticket":
-            risk_flags.append("Matter may fall outside configured practice areas.")
-
-        if extraction.extraction_confidence < 0.65:
-            risk_flags.append("Insufficient intake detail for confident qualification.")
-        if not extraction.client_email and not extraction.client_phone:
-            risk_flags.append("Missing direct contact information for immediate follow-up.")
-        if "don't want to get into details" in " ".join(extraction.key_facts).lower():
-            risk_flags.append("Prospect withheld key facts over email.")
-
-        if "30 days" in extraction.raw_summary.lower() or extraction.urgency == "urgent":
-            risk_flags.append("Possible statute of limitations or urgent filing deadline.")
-
-        if extraction.matter_type == "parking ticket":
-            decision = "not_qualified"
-            recommended_actions.extend(
-                ["Send decline response.", "Recommend local traffic or municipal counsel if appropriate."]
-            )
-        elif (
-            extraction.extraction_confidence < 0.72
-            or not extraction.matter_type
-            or (not extraction.client_email and not extraction.client_phone)
-        ):
-            decision = "needs_review"
-            recommended_actions.extend(
-                ["Request more factual detail from the prospect.", "Route to an attorney for judgment."]
-            )
-        elif practice_match or extraction.matter_type in {"personal injury", "commercial dispute"}:
-            decision = "qualified"
-            recommended_actions.extend(
-                ["Schedule consultation.", "Run formal conflict check.", "Request supporting records."]
-            )
-        else:
-            decision = "not_qualified"
-            recommended_actions.append("Send polite decline and redirect if possible.")
 
         summary = self._build_summary(extraction, decision, risk_flags)
         reasoning = self._build_reasoning(extraction, decision, practice_match, risk_flags)
@@ -193,6 +164,89 @@ class DocumentAnalyzer(WorkCapability):
             qualification_decision=decision,
             qualification_reasoning=reasoning,
             confidence=confidence,
+        )
+
+    def _decide_qualification(
+        self,
+        extraction: LegalIntakeExtraction,
+        risk_flags: list[str],
+        recommended_actions: list[str],
+    ) -> tuple[str, list[str], list[str]]:
+        matter_type = extraction.matter_type.lower().strip()
+        practice_match = matter_type in self._practice_areas
+        if not extraction.matter_type:
+            risk_flags.append("Matter type is unclear.")
+        elif not practice_match and matter_type not in self._out_of_scope_matter_types:
+            risk_flags.append("Matter may fall outside configured practice areas.")
+
+        if extraction.extraction_confidence < 0.65:
+            risk_flags.append("Insufficient intake detail for confident qualification.")
+        if not extraction.client_email and not extraction.client_phone:
+            risk_flags.append("Missing direct contact information")
+        withheld_details = "don't want to get into details" in " ".join(extraction.key_facts).lower()
+        if withheld_details:
+            risk_flags.append("Prospect withheld key facts over email.")
+
+        if "30 days" in extraction.raw_summary.lower() or extraction.urgency == "urgent":
+            risk_flags.append("Possible statute of limitations or urgent filing deadline.")
+
+        if matter_type in self._out_of_scope_matter_types:
+            decision = "not_qualified"
+            recommended_actions.extend(
+                ["Send decline response.", "Recommend a more appropriate attorney or resource if possible."]
+            )
+        elif withheld_details:
+            decision = "needs_review"
+            recommended_actions.extend(
+                ["Request more factual detail from the prospect.", "Route to an attorney for judgment."]
+            )
+        elif practice_match or matter_type in self._in_scope_matter_types:
+            decision = "qualified"
+            recommended_actions.extend(
+                ["Schedule consultation.", "Run formal conflict check.", "Request supporting records."]
+            )
+        elif extraction.extraction_confidence < 0.72 or not extraction.matter_type:
+            decision = "needs_review"
+            recommended_actions.extend(
+                ["Request more factual detail from the prospect.", "Route to an attorney for judgment."]
+            )
+        else:
+            decision = "not_qualified"
+            recommended_actions.append("Send polite decline and redirect if possible.")
+        return decision, risk_flags, recommended_actions
+
+    def _apply_qualification_policy(
+        self,
+        extraction: LegalIntakeExtraction,
+        result: DocumentAnalyzerOutput,
+    ) -> DocumentAnalyzerOutput:
+        risk_flags = list(result.risk_flags)
+        recommended_actions = list(result.recommended_actions)
+        decision, risk_flags, recommended_actions = self._decide_qualification(
+            extraction,
+            risk_flags,
+            recommended_actions,
+        )
+        practice_match = extraction.matter_type in self._practice_areas
+        if decision == result.qualification_decision:
+            return result.model_copy(
+                update={
+                    "risk_flags": list(dict.fromkeys(risk_flags)),
+                    "recommended_actions": list(dict.fromkeys(recommended_actions))[:4],
+                }
+            )
+        return result.model_copy(
+            update={
+                "qualification_decision": decision,
+                "qualification_reasoning": self._build_reasoning(
+                    extraction,
+                    decision,
+                    practice_match,
+                    risk_flags,
+                ),
+                "risk_flags": list(dict.fromkeys(risk_flags)),
+                "recommended_actions": list(dict.fromkeys(recommended_actions))[:4],
+            }
         )
 
     def _build_summary(

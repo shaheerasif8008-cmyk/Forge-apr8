@@ -59,7 +59,12 @@ async def generate(blueprint: EmployeeBlueprint, build: Build, iteration: int = 
         return build
 
     settings = get_settings()
-    client, generation_model = await _create_generation_client(settings)
+    client_result = await _create_generation_client(settings)
+    if isinstance(client_result, tuple):
+        client, generation_model = client_result
+    else:
+        client = client_result
+        generation_model = _resolve_generation_model(settings)
     generated_files: list[str] = []
     total_generation_cost = float(build.metadata.get("generation_cost_usd", 0.0))
 
@@ -236,17 +241,41 @@ async def _call_model(
     prompt: str,
     model: str,
 ) -> ModelCallResult:
+    messages = [{"role": "user", "content": prompt}]
+    system = (
+        "You are Forge's Builder. Return exactly what the prompt requests. "
+        f"Use the configured model {model}."
+    )
+    complete_with_usage = getattr(client, "complete_with_usage", None)
+    if callable(complete_with_usage):
+        content, usage = await complete_with_usage(
+            messages,
+            max_tokens=4096,
+            temperature=0.2,
+            task_type=TaskType.CREATIVE,
+            system=system,
+        )
+        return ModelCallResult(
+            content=str(content),
+            cost_usd=_usage_cost_usd(model, usage),
+            model=model,
+        )
+
     content = await client.complete(
-        [{"role": "user", "content": prompt}],
+        messages,
         max_tokens=4096,
         temperature=0.2,
         task_type=TaskType.CREATIVE,
-        system=(
-            "You are Forge's Builder. Return exactly what the prompt requests. "
-            f"Use the configured model {model}."
-        ),
+        system=system,
     )
     return ModelCallResult(content=content, cost_usd=0.0, model=model)
+
+
+def _usage_cost_usd(model: str, usage: dict[str, object]) -> float:
+    rates = _model_cost_for(model)
+    prompt_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+    completion_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+    return (prompt_tokens * rates["input"]) + (completion_tokens * rates["output"])
 
 
 def _model_cost_for(model: str) -> dict[str, float]:

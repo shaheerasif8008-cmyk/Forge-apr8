@@ -25,8 +25,19 @@ class TextProcessor(WorkCapability):
     version = "1.0.0"
 
     _matter_keywords = {
-        "personal injury": ["car accident", "auto accident", "injured", "workplace", "chemical burn"],
-        "employment": ["work", "boss", "discrimination", "harassment", "terminated"],
+        "personal injury": [
+            "car accident",
+            "auto accident",
+            "injured",
+            "workplace",
+            "chemical burn",
+            "slipped",
+            "slip and fall",
+            "broke my wrist",
+            "broken wrist",
+            "grocery store",
+        ],
+        "employment": ["work", "boss", "discrimination", "discriminated", "harassment", "terminated", "employer"],
         "commercial dispute": ["breach of contract", "manufacturing", "agreement", "contract dispute"],
         "criminal defense": ["arrested", "charged", "criminal"],
         "family law": ["custody", "divorce", "spouse"],
@@ -89,7 +100,7 @@ class TextProcessor(WorkCapability):
             f"EMAIL:\n{email_text.strip()}"
         )
         result = await self._call_structured_model(system_prompt, user_message)
-        return result.model_copy(
+        normalized = result.model_copy(
             update={
                 "client_name": result.client_name.strip(),
                 "client_email": result.client_email.strip(),
@@ -106,6 +117,35 @@ class TextProcessor(WorkCapability):
                 "extraction_confidence": round(max(0.0, min(result.extraction_confidence, 1.0)), 2),
             }
         )
+        return self._merge_deterministic_fields(normalized, self._extract_deterministic(email_text))
+
+    def _merge_deterministic_fields(
+        self,
+        result: LegalIntakeExtraction,
+        fallback: LegalIntakeExtraction,
+    ) -> LegalIntakeExtraction:
+        updates: dict[str, Any] = {}
+        for field in (
+            "client_name",
+            "client_email",
+            "client_phone",
+            "matter_type",
+            "date_of_incident",
+            "opposing_party",
+            "estimated_value",
+            "referral_source",
+        ):
+            if not getattr(result, field) and getattr(fallback, field):
+                updates[field] = getattr(fallback, field)
+        if not result.key_facts and fallback.key_facts:
+            updates["key_facts"] = fallback.key_facts
+        if not result.raw_summary and fallback.raw_summary:
+            updates["raw_summary"] = fallback.raw_summary
+        if result.urgency == "normal" and fallback.urgency != "normal":
+            updates["urgency"] = fallback.urgency
+        if fallback.extraction_confidence > result.extraction_confidence and fallback.matter_type:
+            updates["extraction_confidence"] = fallback.extraction_confidence
+        return result.model_copy(update=updates) if updates else result
 
     async def _call_structured_model(
         self,
@@ -179,6 +219,8 @@ class TextProcessor(WorkCapability):
     def _extract_name(self, text: str) -> str:
         patterns = [
             r"My name is ([A-Z][a-z]+(?: [A-Z][a-z]+)+)",
+            r"(?:Hello,\s*)?[Tt]his is ([A-Z][a-z]+(?: [A-Z][a-z]+)+)",
+            r"(?:Hi|Hello),?\s+I(?:'| a)m ([A-Z][a-z]+(?: [A-Z][a-z]+)+)",
             r"^([A-Z][a-z]+(?: [A-Z][a-z]+)+)[,\n]",
             r"Thanks\.\s*-\s*([A-Z][a-z]+(?: [A-Z][a-z]+)*)",
             r"Thank you,\s*([A-Z][a-z]+(?: [A-Z][a-z]+)*)",

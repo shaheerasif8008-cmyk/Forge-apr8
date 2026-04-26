@@ -42,6 +42,34 @@ async def test_text_processor_extracts_conflict_and_urgency() -> None:
     assert urgent_result.urgency == "urgent"
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("email_text", "matter_type"),
+    [
+        (
+            "This is Elena Torres. I think my employer discriminated against me after I reported harassment at work.",
+            "employment",
+        ),
+        (
+            "My name is Dana Lee. I slipped at a grocery store and broke my wrist. The store manager was John Evans.",
+            "personal injury",
+        ),
+        (
+            "My name is Priya Shah. Our company has a breach of contract dispute with North Coast Manufacturing over a supply agreement.",
+            "commercial dispute",
+        ),
+    ],
+)
+async def test_text_processor_extracts_evaluator_qualified_matters(email_text: str, matter_type: str) -> None:
+    component = TextProcessor()
+    await component.initialize({})
+    result = await component.execute(LegalIntakeInput(email_text=email_text))
+
+    assert result.matter_type == matter_type
+    assert result.client_name
+    assert result.key_facts
+
+
 class _FakeRouter:
     component_id = "litellm_router"
 
