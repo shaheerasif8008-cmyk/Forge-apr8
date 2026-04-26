@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import structlog
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from factory.models.build import Build, BuildLog, BuildStatus
 from factory.pipeline.evaluator.behavioral_tests import run_behavioral_tests
@@ -57,14 +59,14 @@ async def evaluate(build: Build) -> Build:
         auth_headers = {"Authorization": f"Bearer {api_token}"} if api_token else None
         workflow_id = _suite_profile(build)
         suites = {
-            "security": await run_security_tests(base_url, auth_headers=auth_headers),
-            "behavioral": await run_behavioral_tests(base_url, auth_headers=auth_headers),
-            "hallucination": await run_hallucination_tests(base_url, auth_headers=auth_headers),
+            "security": await _run_suite(run_security_tests, base_url, auth_headers),
+            "behavioral": await _run_suite(run_behavioral_tests, base_url, auth_headers),
+            "hallucination": await _run_suite(run_hallucination_tests, base_url, auth_headers),
         }
         if workflow_id == "executive_assistant":
-            suites["functional"] = await run_executive_assistant_tests(base_url, auth_headers=auth_headers)
+            suites["functional"] = await _run_suite(run_executive_assistant_tests, base_url, auth_headers)
         else:
-            suites["functional"] = await run_functional_tests(base_url, auth_headers=auth_headers)
+            suites["functional"] = await _run_suite(run_functional_tests, base_url, auth_headers)
         for suite_name, result in suites.items():
             build.logs.append(
                 BuildLog(
@@ -83,3 +85,16 @@ async def evaluate(build: Build) -> Build:
             await stop_container(container_id)
             build.metadata.pop("evaluator_container_id", None)
             build.metadata.pop("evaluator_port", None)
+
+
+async def _run_suite(
+    suite: Callable[..., Awaitable[dict[str, Any]]],
+    base_url: str,
+    auth_headers: dict[str, str] | None,
+) -> dict[str, Any]:
+    try:
+        return await suite(base_url, auth_headers=auth_headers)
+    except TypeError as exc:
+        if "auth_headers" not in str(exc):
+            raise
+        return await suite(base_url)

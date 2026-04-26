@@ -72,6 +72,7 @@ OPTIONAL_COMPONENT_MODULES = (
     "component_library.quality.verification_layer",
     "component_library.tools.calendar_tool",
     "component_library.tools.crm_tool",
+    "component_library.tools.document_ingestion",
     "component_library.tools.email_tool",
     "component_library.tools.file_storage_tool",
     "component_library.tools.messaging_tool",

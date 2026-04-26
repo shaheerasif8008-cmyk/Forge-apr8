@@ -196,12 +196,15 @@ class InputProtection(QualityModule):
         return {"matched": True, "detail": detail, "sanitized": sanitized}
 
     def _run_prompt_injection_validator(self, text: str, validator: dict[str, Any]) -> dict[str, Any]:
-        sanitized = text
         matches: list[str] = []
         for pattern in self._prompt_patterns:
             if pattern.search(text):
                 matches.append(pattern.pattern)
-                sanitized = pattern.sub("[filtered]", sanitized)
+        sanitized = (
+            "Potential prompt injection attempt removed. No actionable business request was provided."
+            if matches
+            else text
+        )
         return {
             "matched": bool(matches),
             "detail": ", ".join(matches),
