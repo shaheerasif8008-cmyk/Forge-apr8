@@ -104,3 +104,19 @@ async def test_adversarial_review_wrapper_uses_council(monkeypatch) -> None:
     monkeypatch.setattr("employee_runtime.modules.deliberation.council.DeliberationCouncil.deliberate", fake_deliberate)
     verdict = await review.evaluate({"proposal_id": "p5", "content": "Send brief", "context": {}, "risk_tier": "high"})
     assert verdict.approved is True
+
+
+@pytest.mark.anyio
+async def test_adversarial_review_fails_closed_when_council_provider_fails(monkeypatch) -> None:
+    review = AdversarialReview()
+    await review.initialize({})
+
+    async def fake_deliberate(self, proposal, context=None):
+        raise RuntimeError("provider quota exceeded")
+
+    monkeypatch.setattr("employee_runtime.modules.deliberation.council.DeliberationCouncil.deliberate", fake_deliberate)
+    verdict = await review.evaluate({"proposal_id": "p6", "content": "Send brief", "context": {}, "risk_tier": "high"})
+
+    assert verdict.approved is False
+    assert verdict.confidence == 0.0
+    assert verdict.majority_concerns == ["Adversarial review unavailable; human review required."]
