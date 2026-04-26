@@ -15,14 +15,7 @@ from factory.models.blueprint import SelectedComponent
 from factory.models.requirements import EmployeeArchetype, EmployeeRequirements
 
 LEGAL_BASELINE_COMPONENTS: tuple[tuple[str, str, dict[str, object]], ...] = (
-    (
-        "models",
-        "litellm_router",
-        {
-            "primary_model": "openrouter/anthropic/claude-3.5-sonnet",
-            "fallback_model": "openrouter/anthropic/claude-3.5-haiku",
-        },
-    ),
+    ("models", "litellm_router", {}),
     ("work", "text_processor", {}),
     ("work", "document_analyzer", {}),
     ("work", "draft_generator", {}),
@@ -61,6 +54,7 @@ EXECUTIVE_ASSISTANT_COMPONENTS: tuple[tuple[str, str, dict[str, object]], ...] =
 TOOL_MAP: dict[str, str] = {
     "email": "email_tool",
     "calendar": "calendar_tool",
+    "messaging": "messaging_tool",
     "slack": "messaging_tool",
     "teams": "messaging_tool",
     "crm": "crm_tool",
@@ -105,7 +99,7 @@ def _select_components_with_fallback(requirements: EmployeeRequirements) -> list
         else LEGAL_BASELINE_COMPONENTS
     )
     components: list[SelectedComponent] = [
-        SelectedComponent(category=category, component_id=component_id, config=config)
+        SelectedComponent(category=category, component_id=component_id, config=_component_config(component_id, config))
         for category, component_id, config in baseline
         if is_component_production_ready(component_id)
     ]
@@ -132,6 +126,25 @@ def _select_components_with_fallback(requirements: EmployeeRequirements) -> list
 
     _validate_selected_components(requirements, components)
     return components
+
+
+def _component_config(component_id: str, config: dict[str, object]) -> dict[str, object]:
+    if component_id != "litellm_router":
+        return config
+    settings = get_settings()
+    if settings.openai_api_key:
+        primary = "gpt-4o"
+        fallback = "gpt-4o-mini"
+    else:
+        primary = settings.llm_primary_model
+        fallback = settings.llm_fallback_model
+    return {
+        "primary_model": primary,
+        "fallback_model": fallback,
+        "reasoning_model": primary,
+        "safety_model": primary,
+        "fast_model": fallback,
+    }
 
 
 async def _select_components_with_llm(requirements: EmployeeRequirements) -> list[SelectedComponent]:

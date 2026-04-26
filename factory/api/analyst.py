@@ -161,14 +161,16 @@ async def blueprint_preview(
 @router.post("/sessions/{session_id}/commission")
 async def commission_from_session(
     session_id: str,
-    org_id: UUID,
     session: AsyncSession = Depends(get_db_session),
     auth: FactoryAuthContext = Depends(get_factory_auth),
 ) -> dict[str, str]:
-    analyst_session = _SESSIONS[session_id]
-    ensure_org_access(auth, org_id or analyst_session.org_id)
+    analyst_session = _SESSIONS.get(session_id)
+    if analyst_session is None:
+        raise HTTPException(status_code=404, detail="session_not_found")
+    session_org_id = analyst_session.org_id
+    ensure_org_access(auth, session_org_id)
     raw_intake = "\n".join(message["content"] for message in analyst_session.raw_messages if message["role"] == "user")
-    requirements = await build_requirements(raw_intake, str(org_id or analyst_session.org_id))
+    requirements = await build_requirements(raw_intake, session_org_id)
     build = Build(
         requirements_id=requirements.id,
         org_id=requirements.org_id,

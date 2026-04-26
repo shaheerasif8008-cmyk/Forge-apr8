@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import socket
 import subprocess
 
@@ -26,6 +27,10 @@ async def start_container(
 ) -> str:
     """Start a container and return the container id."""
     command = ["docker", "run", "-d", "-p", f"{port}:8001", "-e", f"ENVIRONMENT={environment}"]
+    for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "LANGFUSE_ENABLED"):
+        value = os.environ.get(key, "")
+        if value:
+            command.extend(["-e", f"{key}={value}"])
     if name:
         command.extend(["--name", name])
     command.append(image_tag)

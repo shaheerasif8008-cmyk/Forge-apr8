@@ -20,11 +20,18 @@ async def test_assembler_creates_build_directory(sample_requirements, sample_blu
         assert (build_dir / "employee_runtime").exists()
         assert (build_dir / "portal" / "employee_app").exists()
         assert (build_dir / "component_library" / "interfaces.py").exists()
+        assert (build_dir / "component_library" / "status.py").exists()
         assert (build_dir / "component_library" / "work" / "text_processor.py").exists()
         assert (build_dir / "component_library" / "work" / "schemas.py").exists()
+        assert (build_dir / "component_library" / "quality" / "schemas.py").exists()
+        assert (build_dir / "component_library" / "quality" / "autonomy_matrix.yaml").exists()
+        assert (build_dir / "component_library" / "tools" / "adapter_runtime.py").exists()
         assert (build_dir / "component_library" / "tools" / "crm_tool.py").exists() is False
         assert (build_dir / "generated").exists()
         assert (build_dir / "Dockerfile").exists()
+        dockerignore = (build_dir / ".dockerignore").read_text()
+        assert "portal/employee_app/node_modules" in dockerignore
+        assert "portal/employee_app/out" in dockerignore
         assert (build_dir / "requirements.txt").exists()
         assert (build_dir / "run.py").exists()
 
@@ -34,6 +41,8 @@ async def test_assembler_creates_build_directory(sample_requirements, sample_blu
         frontend_config = (build_dir / "portal" / "employee_app" / "app" / "config.ts").read_text()
         assert str(sample_blueprint.id) in frontend_config
         assert sample_blueprint.employee_name in frontend_config
+        assert "export function resolveApiBaseUrl" in frontend_config
+        assert "export function resolveWsBaseUrl" in frontend_config
         assert not any(path.is_symlink() for path in build_dir.rglob("*"))
     finally:
         if build_dir.exists():

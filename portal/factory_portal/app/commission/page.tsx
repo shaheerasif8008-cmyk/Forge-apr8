@@ -74,7 +74,7 @@ export default function CommissionPage() {
     if (!session) {
       return;
     }
-    const result = await commissionFromSession(session.session_id, orgId);
+    const result = await commissionFromSession(session.session_id);
     setStep(4);
     router.push(`/builds/${result.build_id}`);
   }

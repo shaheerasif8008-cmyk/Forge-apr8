@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -24,6 +25,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_API = "http://localhost:8000/api/v1"
 DEFAULT_ORG_ID = "00000000-0000-0000-0000-000000000001"
 DEFAULT_EMPLOYEE_KEY = "proof-employee-key"
+DOCKER_CLI_CANDIDATES = (
+    "/usr/local/bin/docker",
+    "/Applications/Docker.app/Contents/Resources/bin/docker",
+)
+DOCKER_PATH_DIRS = (
+    "/usr/local/bin",
+    "/Applications/Docker.app/Contents/Resources/bin",
+)
 SUCCESS_BUILD_STATUSES = {"pending_client_action", "deployed"}
 FAIL_BUILD_STATUSES = {"failed"}
 FINAL_TASK_STATUSES = {"completed", "failed", "awaiting_approval"}
@@ -86,10 +95,39 @@ def _merged_env() -> dict[str, str]:
     return merged
 
 
+def _docker_cli() -> str | None:
+    docker = shutil.which("docker")
+    if docker:
+        return docker
+    for candidate in DOCKER_CLI_CANDIDATES:
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
+def _resolve_command(command: list[str]) -> list[str]:
+    if command and command[0] == "docker":
+        docker = _docker_cli()
+        if docker:
+            return [docker, *command[1:]]
+    return command
+
+
+def _command_env() -> dict[str, str]:
+    env = os.environ.copy()
+    path_parts = [part for part in env.get("PATH", "").split(os.pathsep) if part]
+    for docker_dir in reversed(DOCKER_PATH_DIRS):
+        if Path(docker_dir).exists() and docker_dir not in path_parts:
+            path_parts.insert(0, docker_dir)
+    env["PATH"] = os.pathsep.join(path_parts)
+    return env
+
+
 def _run(command: list[str], *, cwd: Path | None = None, timeout: int = 600) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        command,
+        _resolve_command(command),
         cwd=str(cwd or REPO_ROOT),
+        env=_command_env(),
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -130,7 +168,7 @@ def _request_text(url: str, *, timeout: int = 10) -> tuple[int, str]:
 
 
 def _docker_ready() -> tuple[bool, str]:
-    if shutil.which("docker") is None:
+    if _docker_cli() is None:
         return False, "docker CLI not found on PATH"
     result = _run(["docker", "info"], timeout=30)
     if result.returncode == 0:
@@ -149,7 +187,7 @@ def _compose_config_ok() -> tuple[bool, str]:
 
 def _preflight(ctx: ProofContext) -> bool:
     env = ctx.factory_env
-    has_model_key = bool(env.get("ANTHROPIC_API_KEY") or env.get("OPENROUTER_API_KEY"))
+    has_model_key = bool(env.get("ANTHROPIC_API_KEY") or env.get("OPENAI_API_KEY") or env.get("OPENROUTER_API_KEY"))
     if not has_model_key:
         ctx.blockers.append("No ANTHROPIC_API_KEY or OPENROUTER_API_KEY configured.")
     if not env.get("FACTORY_JWT_SECRET"):
@@ -159,17 +197,17 @@ def _preflight(ctx: ProofContext) -> bool:
     ctx.record("docker", healthy=docker_ok, detail=docker_detail)
     if not docker_ok:
         ctx.blockers.append(f"Docker unavailable: {docker_detail}")
-
-    compose_ok, compose_detail = _compose_config_ok()
-    ctx.record("compose_config", healthy=compose_ok, detail=compose_detail)
-    if not compose_ok:
-        ctx.blockers.append(f"docker compose config failed: {compose_detail}")
+    else:
+        compose_ok, compose_detail = _compose_config_ok()
+        ctx.record("compose_config", healthy=compose_ok, detail=compose_detail)
+        if not compose_ok:
+            ctx.blockers.append(f"docker compose config failed: {compose_detail}")
 
     return not ctx.blockers
 
 
 def _start_stack(ctx: ProofContext) -> None:
-    result = _run(["docker", "compose", "up", "-d"], timeout=900)
+    result = _run(["docker", "compose", "up", "-d", "--build"], timeout=1200)
     if result.returncode != 0:
         raise RuntimeError(f"docker compose up failed: {(result.stderr or result.stdout)[-2000:]}")
 
@@ -181,6 +219,22 @@ def _start_stack(ctx: ProofContext) -> None:
             return
         time.sleep(2)
     raise RuntimeError("Factory health check did not return 200 within 180 seconds.")
+
+
+def _ensure_proof_org(ctx: ProofContext) -> None:
+    sql = (
+        "INSERT INTO client_orgs (id, name, slug, industry, tier, contact_email) "
+        f"VALUES ('{DEFAULT_ORG_ID}', 'Cartwright Law', 'cartwright-law-proof', "
+        "'legal', 'enterprise', 'dana.cartwright@example.com') "
+        "ON CONFLICT (id) DO NOTHING;"
+    )
+    result = _run(
+        ["docker", "compose", "exec", "-T", "postgres", "psql", "-U", "forge", "-d", "forge", "-c", sql],
+        timeout=60,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Proof org seed failed: {(result.stderr or result.stdout)[-2000:]}")
+    ctx.record("proof_org", org_id=DEFAULT_ORG_ID)
 
 
 def _issue_factory_token(ctx: ProofContext) -> None:
@@ -290,10 +344,15 @@ def _approve_build(ctx: ProofContext) -> None:
 
 
 def _wait_for_build(ctx: ProofContext) -> dict[str, Any]:
-    deadline = time.time() + 1500
+    deadline = time.time() + 3600
     approved = False
     while time.time() < deadline:
-        build = _get_build(ctx)
+        try:
+            build = _get_build(ctx)
+        except (TimeoutError, socket.timeout, urllib.error.URLError) as exc:
+            ctx.record("build_status_poll", healthy=False, detail=str(exc))
+            time.sleep(20)
+            continue
         status = str(build.get("status", ""))
         ctx.record("build_status", status=status)
         if status == "pending_review" and not approved:
@@ -482,6 +541,7 @@ def main() -> int:
 
     try:
         _start_stack(ctx)
+        _ensure_proof_org(ctx)
         _issue_factory_token(ctx)
         _commission_build(ctx)
         build = _wait_for_build(ctx)

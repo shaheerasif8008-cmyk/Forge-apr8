@@ -21,7 +21,12 @@ logger = structlog.get_logger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BUILD_ROOT = Path("/tmp/forge-builds")
-FRAMEWORK_FILES = ("__init__.py", "interfaces.py", "registry.py", "component_factory.py")
+FRAMEWORK_FILES = ("__init__.py", "interfaces.py", "registry.py", "component_factory.py", "status.py")
+CATEGORY_SUPPORT_FILES = {
+    "quality": ("schemas.py", "autonomy_matrix.yaml"),
+    "tools": ("adapter_runtime.py",),
+    "work": ("schemas.py",),
+}
 DEFAULT_SIDEBAR_PANELS = (
     "inbox",
     "activity",
@@ -84,6 +89,7 @@ async def assemble(
 
     await generate_entrypoint(build_dir)
     await generate_dockerfile(build_dir)
+    _write_dockerignore(build_dir)
     await generate_requirements_txt(build_dir)
     await generate_env_example(build_dir)
 
@@ -139,10 +145,10 @@ def _copy_component(category: str, component_id: str, destination: Path) -> None
         raise FileNotFoundError(f"Component source not found: {src}")
     shutil.copy2(src, category_dest / f"{component_id}.py")
 
-    if category == "work":
-        schemas_src = category_src / "schemas.py"
-        if schemas_src.exists():
-            shutil.copy2(schemas_src, category_dest / "schemas.py")
+    for support_file in CATEGORY_SUPPORT_FILES.get(category, ()):
+        support_src = category_src / support_file
+        if support_src.exists():
+            shutil.copy2(support_src, category_dest / support_file)
 
 
 def _write_employee_app_config(
@@ -174,9 +180,48 @@ def _write_employee_app_config(
         "  wsBaseUrl: \"\",\n"
         f"  apiToken: {json.dumps(str(runtime_config.get('api_auth_token', '')))},\n"
         f"  deploymentFormat: {json.dumps(blueprint.deployment_spec.format)},\n"
-        "};\n"
+        "};\n\n"
+        "export function resolveApiBaseUrl(): string {\n"
+        "  if (employeeAppConfig.apiBaseUrl) {\n"
+        "    return employeeAppConfig.apiBaseUrl.replace(/\\/$/, \"\");\n"
+        "  }\n"
+        "  if (typeof window !== \"undefined\") {\n"
+        "    return window.location.origin;\n"
+        "  }\n"
+        "  return process.env.NEXT_PUBLIC_EMPLOYEE_API_URL?.replace(/\\/$/, \"\") ?? \"http://localhost:8001\";\n"
+        "}\n\n"
+        "export function resolveWsBaseUrl(): string {\n"
+        "  if (employeeAppConfig.wsBaseUrl) {\n"
+        "    return employeeAppConfig.wsBaseUrl.replace(/\\/$/, \"\");\n"
+        "  }\n"
+        "  if (typeof window !== \"undefined\") {\n"
+        "    return window.location.origin.replace(/^http/, \"ws\");\n"
+        "  }\n"
+        "  return process.env.NEXT_PUBLIC_EMPLOYEE_WS_URL?.replace(/\\/$/, \"\") ?? \"ws://localhost:8001\";\n"
+        "}\n"
     )
     config_path.write_text(config_contents)
+
+
+def _write_dockerignore(build_dir: Path) -> None:
+    (build_dir / ".dockerignore").write_text(
+        "\n".join(
+            (
+                "portal/employee_app/node_modules",
+                "portal/employee_app/.next",
+                "portal/employee_app/out",
+                "portal/employee_app/dist",
+                "portal/employee_app/*.dmg",
+                "portal/employee_app/*.exe",
+                "portal/employee_app/*.AppImage",
+                "portal/employee_app/.turbo",
+                "portal/employee_app/.vercel",
+                "__pycache__",
+                "*.pyc",
+                "",
+            )
+        )
+    )
 
 
 def _enabled_sidebar_panels(blueprint: EmployeeBlueprint) -> list[str]:

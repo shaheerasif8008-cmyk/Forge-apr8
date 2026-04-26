@@ -162,6 +162,31 @@ def test_metrics_fall_back_when_deepeval_missing(monkeypatch: pytest.MonkeyPatch
     assert result.passed is True
 
 
+def test_hallucination_metric_falls_back_when_deepeval_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _RaisingMetric:
+        def __init__(self, *, model: str) -> None:
+            pass
+
+        def measure(self, test_case: object) -> None:
+            raise RuntimeError("deepeval parameter mismatch")
+
+    class _FakeLLMTestCase:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(deepeval_adapter, "DEEPEVAL_AVAILABLE", True)
+    monkeypatch.setattr(deepeval_adapter, "HallucinationMetric", _RaisingMetric)
+    monkeypatch.setattr(deepeval_adapter, "LLMTestCase", _FakeLLMTestCase)
+
+    result = deepeval_adapter.hallucination_metric(
+        {"brief": {"client_info": {"client_name": "Jordan Lee"}}},
+        "Jordan Lee asked for help.",
+    )
+
+    assert result.name == "hallucination"
+    assert result.passed is True
+
+
 @pytest.mark.anyio
 async def test_functional_deepeval_suite(monkeypatch) -> None:
     monkeypatch.setattr("factory.pipeline.evaluator.functional_tests.httpx.AsyncClient", _FakeAsyncClient)

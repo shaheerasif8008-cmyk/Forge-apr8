@@ -9,7 +9,6 @@ export default function BuildsPage() {
   const [orgId, setOrgId] = useState("");
   const [orgs, setOrgs] = useState<ClientOrg[]>([]);
   const [builds, setBuilds] = useState<Build[]>([]);
-  const [buildId, setBuildId] = useState("");
   const [loadingContext, setLoadingContext] = useState(true);
 
   useEffect(() => {
@@ -47,7 +46,7 @@ export default function BuildsPage() {
       <div className="rounded-[28px] border border-black/10 bg-white/85 p-8 shadow-lg">
         <div className="text-xs uppercase tracking-[0.28em] text-black/45">Build Timeline</div>
         <h1 className="mt-3 text-4xl font-semibold">Inspect pipeline logs and build events.</h1>
-        <p className="mt-4 text-black/70">Browse recent builds for an accessible organization or jump directly to a known build.</p>
+        <p className="mt-4 text-black/70">Browse recent builds for an accessible organization.</p>
         <div className="mt-6 flex flex-wrap gap-3">
           <select
             className="min-w-[280px] rounded-full border border-black/10 bg-stone-50 px-4 py-3"
@@ -62,18 +61,6 @@ export default function BuildsPage() {
               </option>
             ))}
           </select>
-          <input
-            className="min-w-[320px] rounded-full border border-black/10 bg-stone-50 px-4 py-3"
-            onChange={(event) => setBuildId(event.target.value)}
-            placeholder="Paste build UUID"
-            value={buildId}
-          />
-          <Link
-            className={`rounded-full px-5 py-3 text-sm font-semibold text-white ${buildId ? "bg-black" : "pointer-events-none bg-black/30"}`}
-            href={buildId ? `/builds/${buildId}` : "/builds"}
-          >
-            Open Build Tracker
-          </Link>
         </div>
 
         <div className="mt-8 grid gap-4">

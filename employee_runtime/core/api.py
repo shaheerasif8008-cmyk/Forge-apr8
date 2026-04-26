@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import os
 from collections.abc import AsyncIterator
@@ -28,31 +29,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select, text
 
-import component_library.data.context_assembler  # noqa: F401
-import component_library.data.knowledge_base  # noqa: F401
-import component_library.data.operational_memory  # noqa: F401
-import component_library.data.org_context  # noqa: F401
-import component_library.data.working_memory  # noqa: F401
-import component_library.models.anthropic_provider  # noqa: F401
-import component_library.models.litellm_router  # noqa: F401
-import component_library.quality.audit_system  # noqa: F401
-import component_library.quality.autonomy_manager  # noqa: F401
-import component_library.quality.compliance_rules  # noqa: F401
-import component_library.quality.confidence_scorer  # noqa: F401
-import component_library.quality.explainability  # noqa: F401
-import component_library.quality.input_protection  # noqa: F401
-import component_library.quality.verification_layer  # noqa: F401
-import component_library.tools.calendar_tool  # noqa: F401
-import component_library.tools.crm_tool  # noqa: F401
-import component_library.tools.email_tool  # noqa: F401
-import component_library.tools.file_storage_tool  # noqa: F401
-import component_library.tools.messaging_tool  # noqa: F401
-import component_library.work.communication_manager  # noqa: F401
-import component_library.work.document_analyzer  # noqa: F401
-import component_library.work.draft_generator  # noqa: F401
-import component_library.work.scheduler_manager  # noqa: F401
-import component_library.work.text_processor  # noqa: F401
-import component_library.work.workflow_executor  # noqa: F401
 from component_library.component_factory import create_components
 from employee_runtime.core.auth import (
     authorize_request,
@@ -75,6 +51,50 @@ from employee_runtime.core.tool_broker import ToolBroker
 from employee_runtime.modules.behavior_manager import BehaviorManager
 from employee_runtime.modules.pulse_engine import DailyLoopRequest, PulseEngine
 from employee_runtime.shared.orm import KnowledgeChunkRow
+
+
+OPTIONAL_COMPONENT_MODULES = (
+    "component_library.data.context_assembler",
+    "component_library.data.knowledge_base",
+    "component_library.data.operational_memory",
+    "component_library.data.org_context",
+    "component_library.data.working_memory",
+    "component_library.models.anthropic_provider",
+    "component_library.models.litellm_router",
+    "component_library.quality.audit_system",
+    "component_library.quality.autonomy_manager",
+    "component_library.quality.approval_manager",
+    "component_library.quality.adversarial_review",
+    "component_library.quality.compliance_rules",
+    "component_library.quality.confidence_scorer",
+    "component_library.quality.explainability",
+    "component_library.quality.input_protection",
+    "component_library.quality.verification_layer",
+    "component_library.tools.calendar_tool",
+    "component_library.tools.crm_tool",
+    "component_library.tools.email_tool",
+    "component_library.tools.file_storage_tool",
+    "component_library.tools.messaging_tool",
+    "component_library.work.communication_manager",
+    "component_library.work.document_analyzer",
+    "component_library.work.draft_generator",
+    "component_library.work.scheduler_manager",
+    "component_library.work.text_processor",
+    "component_library.work.workflow_executor",
+)
+
+
+def _import_packaged_component_modules() -> None:
+    for module_name in OPTIONAL_COMPONENT_MODULES:
+        try:
+            importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            if exc.name == module_name:
+                continue
+            raise
+
+
+_import_packaged_component_modules()
 
 
 class TaskRequest(BaseModel):

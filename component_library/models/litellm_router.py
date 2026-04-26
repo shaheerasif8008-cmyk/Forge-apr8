@@ -21,6 +21,7 @@ The router records every call to a RouteRecord for observability.
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import AsyncGenerator
 from enum import Enum
@@ -166,7 +167,7 @@ class LitellmRouter(BaseComponent):
 
     async def complete(
         self,
-        messages: list[dict[str, str]] | str,
+        messages: list[dict[str, str]] | dict[str, object] | str,
         user_message: str | None = None,
         *,
         task_type: TaskType = TaskType.DEFAULT,
@@ -226,7 +227,7 @@ class LitellmRouter(BaseComponent):
     async def structure(
         self,
         response_model: type[T],
-        messages: list[dict[str, str]] | str,
+        messages: list[dict[str, str]] | dict[str, object] | str,
         user_message: str | None = None,
         *,
         task_type: TaskType = TaskType.STRUCTURED,
@@ -433,12 +434,14 @@ class LitellmRouter(BaseComponent):
 
     def _coerce_messages(
         self,
-        messages: list[dict[str, str]] | str,
+        messages: list[dict[str, str]] | dict[str, object] | str,
         user_message: str | None,
         system: str | None,
     ) -> list[dict[str, str]]:
         if isinstance(messages, str):
             message_list = [{"role": "user", "content": user_message or messages}]
+        elif isinstance(messages, dict):
+            message_list = [{"role": "user", "content": json.dumps(messages, sort_keys=True, default=str)}]
         else:
             message_list = messages
         return self._build_messages(message_list, system)

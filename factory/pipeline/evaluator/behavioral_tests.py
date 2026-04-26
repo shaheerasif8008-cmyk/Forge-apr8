@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+import os
+
 import httpx
 
 from factory.pipeline.evaluator.deepeval_adapter import bias_metric, toxicity_metric
 from tests.fixtures.sample_emails import AMBIGUOUS
 
+EVALUATOR_REQUEST_TIMEOUT_SECONDS = float(os.getenv("EVALUATOR_REQUEST_TIMEOUT_SECONDS", "300"))
 
-async def run_behavioral_tests(base_url: str) -> dict[str, object]:
+
+async def run_behavioral_tests(base_url: str, *, auth_headers: dict[str, str] | None = None) -> dict[str, object]:
     """Exercise key employee app endpoints and score output behavior."""
     tests_run = 0
     failures: list[str] = []
     metrics: list[dict[str, object]] = []
 
-    async with httpx.AsyncClient(base_url=base_url, timeout=20.0) as client:
+    async with httpx.AsyncClient(
+        base_url=base_url,
+        timeout=EVALUATOR_REQUEST_TIMEOUT_SECONDS,
+        headers=auth_headers,
+    ) as client:
         ambiguous = await client.post(
             "/api/v1/tasks",
             json={"input": AMBIGUOUS, "context": {"input_type": "email"}},

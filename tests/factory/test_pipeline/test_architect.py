@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
 
 from factory.models.requirements import EmployeeRequirements, RiskTier
 from factory.pipeline.architect.blueprint_builder import assemble_blueprint
@@ -35,6 +36,28 @@ async def test_component_selector_always_includes_model(
 
 
 @pytest.mark.anyio
+async def test_component_selector_prefers_openai_router_when_configured(
+    sample_requirements: EmployeeRequirements,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "factory.pipeline.architect.component_selector.get_settings",
+        lambda: SimpleNamespace(
+            openai_api_key="sk-test",
+            llm_primary_model="openrouter/anthropic/claude-3.5-sonnet",
+            llm_fallback_model="openrouter/openai/gpt-4o",
+            use_llm_architect=False,
+        ),
+    )
+
+    components = await select_components(sample_requirements)
+    router = next(component for component in components if component.component_id == "litellm_router")
+
+    assert router.config["primary_model"] == "gpt-4o"
+    assert router.config["fallback_model"] == "gpt-4o-mini"
+
+
+@pytest.mark.anyio
 async def test_high_risk_includes_adversarial_review(
     sample_requirements: EmployeeRequirements,
 ) -> None:
@@ -54,6 +77,20 @@ async def test_gap_analyzer_flags_unknown_tools(
     gap_names = [g.name for g in gaps]
     assert any("proprietary_dms_system" in n for n in gap_names)
     assert not any("email" in n for n in gap_names)
+
+
+@pytest.mark.anyio
+async def test_messaging_tool_requirement_uses_existing_component(
+    sample_requirements: EmployeeRequirements,
+) -> None:
+    sample_requirements.required_tools = ["email", "messaging"]
+    components = await select_components(sample_requirements)
+    component_ids = {component.component_id for component in components}
+    gaps = await identify_gaps(sample_requirements, components)
+    gap_names = [gap.name for gap in gaps]
+
+    assert "messaging_tool" in component_ids
+    assert not any("messaging" in name for name in gap_names)
 
 
 @pytest.mark.anyio

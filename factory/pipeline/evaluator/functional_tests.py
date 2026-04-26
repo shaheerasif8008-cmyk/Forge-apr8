@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import httpx
@@ -14,16 +15,21 @@ from factory.pipeline.evaluator.deepeval_adapter import (
 )
 
 DATASET_PATH = Path(__file__).resolve().parent / "datasets" / "legal_intake.jsonl"
+EVALUATOR_REQUEST_TIMEOUT_SECONDS = float(os.getenv("EVALUATOR_REQUEST_TIMEOUT_SECONDS", "300"))
 
 
-async def run_functional_tests(base_url: str) -> dict[str, object]:
+async def run_functional_tests(base_url: str, *, auth_headers: dict[str, str] | None = None) -> dict[str, object]:
     """Submit representative intake tasks and score them with metric-style checks."""
     cases = load_cases(DATASET_PATH)
     failures: list[str] = []
     case_results: list[dict[str, object]] = []
     tests_run = 0
 
-    async with httpx.AsyncClient(base_url=base_url, timeout=20.0) as client:
+    async with httpx.AsyncClient(
+        base_url=base_url,
+        timeout=EVALUATOR_REQUEST_TIMEOUT_SECONDS,
+        headers=auth_headers,
+    ) as client:
         for case in cases:
             response = await client.post(
                 "/api/v1/tasks",

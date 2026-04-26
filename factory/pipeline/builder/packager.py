@@ -81,13 +81,29 @@ async def package(build: Build) -> Build:
                 )
             )
 
-    result = subprocess.run(
-        ["docker", "build", "-t", image_tag, "."],
-        cwd=str(build_dir),
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
+    try:
+        result = subprocess.run(
+            ["docker", "build", "-t", image_tag, "."],
+            cwd=str(build_dir),
+            capture_output=True,
+            text=True,
+            timeout=int(environ.get("FORGE_DOCKER_BUILD_TIMEOUT_SECONDS", "900")),
+        )
+    except subprocess.TimeoutExpired as exc:
+        build.status = BuildStatus.FAILED
+        build.logs.append(
+            BuildLog(
+                stage="packager",
+                level="error",
+                message="Docker build timed out",
+                detail={
+                    "timeout_seconds": exc.timeout,
+                    "stdout": _tail_text(exc.stdout, 2000),
+                    "stderr": _tail_text(exc.stderr, 4000),
+                },
+            )
+        )
+        return build
     if result.returncode != 0:
         build.status = BuildStatus.FAILED
         build.logs.append(
@@ -159,6 +175,14 @@ def _build_frontend(frontend_dir: Path) -> subprocess.CompletedProcess[str]:
         text=True,
         timeout=600,
     )
+
+
+def _tail_text(value: str | bytes | None, limit: int) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        value = value.decode(errors="replace")
+    return value[-limit:]
 
 
 def _should_build_desktop(build: Build) -> bool:

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import structlog
 
-from component_library.models.anthropic_provider import AnthropicProvider
+from component_library.models.litellm_router import LitellmRouter, TaskType
 from factory.config import FactorySettings, get_settings
 from factory.models.blueprint import EmployeeBlueprint
 from factory.models.build import Build, BuildLog, BuildStatus
@@ -59,7 +59,7 @@ async def generate(blueprint: EmployeeBlueprint, build: Build, iteration: int = 
         return build
 
     settings = get_settings()
-    client = await _create_generation_client(settings)
+    client, generation_model = await _create_generation_client(settings)
     generated_files: list[str] = []
     total_generation_cost = float(build.metadata.get("generation_cost_usd", 0.0))
 
@@ -77,10 +77,43 @@ async def generate(blueprint: EmployeeBlueprint, build: Build, iteration: int = 
             interface_source=(REPO_ROOT / "component_library" / "interfaces.py").read_text(),
             existing_component_example=(REPO_ROOT / "component_library" / "work" / "text_processor.py").read_text(),
         )
-        module_result = await _call_model(client, module_prompt, settings.generator_model)
+        module_result = await _call_model(client, module_prompt, generation_model)
         total_generation_cost += module_result.cost_usd
         module_code = _extract_code_block(module_result.content)
-        _validate_generated_module(module_code)
+        validation_attempt = 1
+        while True:
+            try:
+                _validate_generated_module(module_code)
+                break
+            except ValueError as exc:
+                if validation_attempt >= settings.max_generation_iterations:
+                    build.status = BuildStatus.FAILED
+                    build.logs.append(
+                        BuildLog(
+                            stage="generator",
+                            level="error",
+                            message=f"Generated module contract validation failed for {spec.name}",
+                            detail={
+                                "iteration_number": validation_attempt,
+                                "validation_error": str(exc),
+                                "response": module_result.content[-MAX_LOG_TEXT:],
+                            },
+                        )
+                    )
+                    build.metadata["generation_cost_usd"] = round(total_generation_cost, 6)
+                    build.metadata["generated_files"] = generated_files
+                    _sync_generated_files(build)
+                    return build
+                validation_attempt += 1
+                fix_prompt = _build_fix_prompt(
+                    spec_name=spec.name,
+                    current_code=module_code,
+                    current_test="",
+                    pytest_output=f"Contract validation failed: {exc}",
+                )
+                module_result = await _call_model(client, fix_prompt, generation_model)
+                total_generation_cost += module_result.cost_usd
+                module_code = _extract_code_block(module_result.content)
         module_path.write_text(module_code)
 
         test_prompt = _render_prompt(
@@ -92,7 +125,7 @@ async def generate(blueprint: EmployeeBlueprint, build: Build, iteration: int = 
             spec_inputs=json.dumps(spec.inputs, indent=2, sort_keys=True),
             spec_outputs=json.dumps(spec.outputs, indent=2, sort_keys=True),
         )
-        test_result = await _call_model(client, test_prompt, settings.generator_model)
+        test_result = await _call_model(client, test_prompt, generation_model)
         total_generation_cost += test_result.cost_usd
         test_code = _extract_code_block(test_result.content)
         test_path.write_text(test_code)
@@ -129,7 +162,7 @@ async def generate(blueprint: EmployeeBlueprint, build: Build, iteration: int = 
                 current_test=test_path.read_text(),
                 pytest_output=_format_test_result(pytest_result),
             )
-            fixed_result = await _call_model(client, fix_prompt, settings.generator_model)
+            fixed_result = await _call_model(client, fix_prompt, generation_model)
             total_generation_cost += fixed_result.cost_usd
             fixed_code = _extract_code_block(fixed_result.content)
             _validate_generated_module(fixed_code)
@@ -174,42 +207,46 @@ async def generate(blueprint: EmployeeBlueprint, build: Build, iteration: int = 
     return build
 
 
-async def _create_generation_client(settings: FactorySettings) -> AnthropicProvider:
-    client = AnthropicProvider()
+def _resolve_generation_model(settings: FactorySettings) -> str:
+    if settings.anthropic_api_key:
+        return settings.generator_model
+    if settings.openai_api_key:
+        return "gpt-4o"
+    if settings.openrouter_api_key:
+        return settings.llm_primary_model
+    return settings.generator_model
+
+
+async def _create_generation_client(settings: FactorySettings) -> tuple[LitellmRouter, str]:
+    model = _resolve_generation_model(settings)
+    client = LitellmRouter()
     await client.initialize(
         {
-            "model": settings.generator_model,
-            "api_key": settings.anthropic_api_key,
+            "primary_model": model,
+            "fallback_model": settings.llm_fallback_model,
             "max_tokens": 4096,
-            "temperature": 0.2,
             "timeout": max(settings.generator_test_timeout, 60),
         }
     )
-    return client
+    return client, model
 
 
 async def _call_model(
-    client: AnthropicProvider,
+    client: LitellmRouter,
     prompt: str,
     model: str,
 ) -> ModelCallResult:
-    content, usage = await client.complete_with_usage(
+    content = await client.complete(
         [{"role": "user", "content": prompt}],
         max_tokens=4096,
         temperature=0.2,
+        task_type=TaskType.CREATIVE,
         system=(
             "You are Forge's Builder. Return exactly what the prompt requests. "
             f"Use the configured model {model}."
         ),
     )
-    input_tokens = int(usage.get("prompt_tokens", 0) or 0)
-    output_tokens = int(usage.get("completion_tokens", 0) or 0)
-    rates = _model_cost_for(model)
-    estimated_cost_usd = round(
-        (input_tokens * rates["input"]) + (output_tokens * rates["output"]),
-        6,
-    )
-    return ModelCallResult(content=content, cost_usd=estimated_cost_usd, model=model)
+    return ModelCallResult(content=content, cost_usd=0.0, model=model)
 
 
 def _model_cost_for(model: str) -> dict[str, float]:

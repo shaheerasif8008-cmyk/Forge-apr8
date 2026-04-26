@@ -47,6 +47,7 @@ def requirements_to_row_payload(requirements: EmployeeRequirements) -> dict[str,
 
 def blueprint_to_row_payload(blueprint: EmployeeBlueprint) -> dict[str, Any]:
     payload = blueprint.model_dump()
+    payload.pop("workflow_graph", None)
     payload["components"] = _dump_items(blueprint.components)
     payload["custom_code_specs"] = _dump_items(blueprint.custom_code_specs)
     return payload

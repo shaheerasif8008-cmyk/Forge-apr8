@@ -244,13 +244,13 @@ class _Extraction(BaseModel):
 async def test_structure_returns_pydantic_model() -> None:
     router = await _init_router()
     expected = _Extraction(entity="Acme Corp", confidence=0.95)
+    captured: dict[str, object] = {}
 
-    with patch.object(
-        router._instructor_client.chat.completions,  # type: ignore[union-attr]
-        "create",
-        new_callable=AsyncMock,
-        return_value=expected,
-    ):
+    async def fake_create(**kwargs):
+        captured.update(kwargs)
+        return expected
+
+    with patch.object(router._instructor_client.chat.completions, "create", new=fake_create):  # type: ignore[union-attr]
         result = await router.structure(
             _Extraction,
             [{"role": "user", "content": "Extract entity from: Acme Corp signed."}],
@@ -259,6 +259,27 @@ async def test_structure_returns_pydantic_model() -> None:
     assert isinstance(result, _Extraction)
     assert result.entity == "Acme Corp"
     assert result.confidence == pytest.approx(0.95)
+    assert captured["messages"] == [{"role": "user", "content": "Extract entity from: Acme Corp signed."}]
+
+
+@pytest.mark.anyio
+async def test_structure_accepts_dict_payload() -> None:
+    router = await _init_router()
+    expected = _Extraction(entity="Acme Corp", confidence=0.95)
+    captured: dict[str, object] = {}
+
+    async def fake_create(**kwargs):
+        captured.update(kwargs)
+        return expected
+
+    with patch.object(router._instructor_client.chat.completions, "create", new=fake_create):  # type: ignore[union-attr]
+        result = await router.structure(_Extraction, {"entity": "Acme Corp"}, system_prompt="Extract.")
+
+    assert result == expected
+    assert captured["messages"] == [
+        {"role": "system", "content": "Extract."},
+        {"role": "user", "content": "{\"entity\": \"Acme Corp\"}"},
+    ]
 
 
 @pytest.mark.anyio

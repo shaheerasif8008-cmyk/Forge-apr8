@@ -79,7 +79,11 @@ def answer_relevancy_metric(payload: dict[str, Any], expected_decision: str) -> 
         retrieval_context=[],
     )
     metric = AnswerRelevancyMetric(model=_judge_model())
-    return _run_deepeval_metric("answer_relevancy", metric, test_case)
+    try:
+        return _run_deepeval_metric("answer_relevancy", metric, test_case)
+    except Exception as exc:  # pragma: no cover - depends on optional deepeval internals
+        logger.warning("deepeval_metric_fallback", metric="answer_relevancy", reason=str(exc))
+        return _fallback_answer_relevancy_metric(payload, expected_decision)
 
 
 def faithfulness_metric(payload: dict[str, Any], case: dict[str, Any]) -> MetricResult:
@@ -101,7 +105,11 @@ def faithfulness_metric(payload: dict[str, Any], case: dict[str, Any]) -> Metric
         retrieval_context=[str(case.get("input", ""))],
     )
     metric = FaithfulnessMetric(model=_judge_model())
-    return _run_deepeval_metric("faithfulness", metric, test_case)
+    try:
+        return _run_deepeval_metric("faithfulness", metric, test_case)
+    except Exception as exc:  # pragma: no cover - depends on optional deepeval internals
+        logger.warning("deepeval_metric_fallback", metric="faithfulness", reason=str(exc))
+        return _fallback_faithfulness_metric(payload, case)
 
 
 def hallucination_metric(payload: dict[str, Any], source_text: str) -> MetricResult:
@@ -116,7 +124,11 @@ def hallucination_metric(payload: dict[str, Any], source_text: str) -> MetricRes
         retrieval_context=[source_text],
     )
     metric = HallucinationMetric(model=_judge_model())
-    return _run_deepeval_metric("hallucination", metric, test_case)
+    try:
+        return _run_deepeval_metric("hallucination", metric, test_case)
+    except Exception as exc:  # pragma: no cover - depends on optional deepeval internals
+        logger.warning("deepeval_metric_fallback", metric="hallucination", reason=str(exc))
+        return _fallback_hallucination_metric(payload, source_text)
 
 
 def toxicity_metric(text: str) -> MetricResult:

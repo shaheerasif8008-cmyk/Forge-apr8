@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -56,3 +57,22 @@ async def test_packager_handles_docker_failure(sample_build, monkeypatch, tmp_pa
     result = await package(sample_build)
     assert result.status == BuildStatus.FAILED
     assert any(log.stage == "packager" and log.level == "error" for log in result.logs)
+
+
+@pytest.mark.anyio
+async def test_packager_records_docker_timeout(sample_build, monkeypatch, tmp_path) -> None:
+    sample_build.metadata["build_dir"] = str(tmp_path)
+    sample_build.metadata["frontend_dir"] = str(tmp_path / "portal" / "employee_app")
+    Path(sample_build.metadata["build_dir"]).mkdir(parents=True, exist_ok=True)
+    Path(sample_build.metadata["frontend_dir"]).mkdir(parents=True, exist_ok=True)
+
+    def fake_run(command, **kwargs):
+        if command[:2] == ["npm", "ci"] or command[:3] == ["npm", "run", "build"]:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        raise subprocess.TimeoutExpired(command, timeout=1, output=b"partial", stderr=b"slow")
+
+    monkeypatch.setattr("factory.pipeline.builder.packager.subprocess.run", fake_run)
+    result = await package(sample_build)
+
+    assert result.status == BuildStatus.FAILED
+    assert any(log.message == "Docker build timed out" for log in result.logs)

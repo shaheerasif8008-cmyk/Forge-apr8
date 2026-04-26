@@ -53,16 +53,18 @@ async def evaluate(build: Build) -> Build:
             )
             return build
 
+        api_token = str(build.metadata.get("employee_api_token", "")).strip()
+        auth_headers = {"Authorization": f"Bearer {api_token}"} if api_token else None
         workflow_id = _suite_profile(build)
         suites = {
-            "security": await run_security_tests(base_url),
-            "behavioral": await run_behavioral_tests(base_url),
-            "hallucination": await run_hallucination_tests(base_url),
+            "security": await run_security_tests(base_url, auth_headers=auth_headers),
+            "behavioral": await run_behavioral_tests(base_url, auth_headers=auth_headers),
+            "hallucination": await run_hallucination_tests(base_url, auth_headers=auth_headers),
         }
         if workflow_id == "executive_assistant":
-            suites["functional"] = await run_executive_assistant_tests(base_url)
+            suites["functional"] = await run_executive_assistant_tests(base_url, auth_headers=auth_headers)
         else:
-            suites["functional"] = await run_functional_tests(base_url)
+            suites["functional"] = await run_functional_tests(base_url, auth_headers=auth_headers)
         for suite_name, result in suites.items():
             build.logs.append(
                 BuildLog(

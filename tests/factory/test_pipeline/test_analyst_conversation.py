@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 import pytest
 
+import factory.api.analyst as analyst_api
 from factory.database import get_db_session
 from factory.main import app
+from factory.models.build import BuildStatus
+from factory.models.requirements import EmployeeRequirements
+from factory.pipeline.analyst.conversation import AnalystGraphState, AnalystSession
 from factory.pipeline.analyst.conversation import (
     CompletenessAssessment,
     IntentClassification,
@@ -140,3 +146,59 @@ async def test_analyst_incomplete_request_times_out_after_ten_turns(client, samp
     assert last.status_code == 200
     assert last.json()["is_complete"] is False
     assert last.json()["timed_out"] is True
+
+
+@pytest.mark.anyio
+async def test_commission_from_session_uses_session_org_when_query_org_differs(
+    client,
+    sample_requirements,
+    monkeypatch,
+) -> None:
+    async def fake_db():
+        yield object()
+
+    session_org_id = sample_requirements.org_id
+    other_org_id = UUID("00000000-0000-0000-0000-000000000099")
+    recorded: dict[str, object] = {}
+
+    analyst_session = AnalystSession(
+        session_id="session-with-org",
+        org_id=str(session_org_id),
+        state=AnalystGraphState(
+            session_id="session-with-org",
+            org_id=str(session_org_id),
+            messages=[{"role": "user", "content": "Build a legal intake employee."}],
+        ),
+    )
+
+    async def fake_build_requirements(raw_intake: str, org_id: str) -> EmployeeRequirements:
+        recorded["org_id"] = org_id
+        return sample_requirements.model_copy(update={"org_id": UUID(org_id)})
+
+    async def fake_save_requirements(session, requirements):
+        recorded["requirements"] = requirements
+        return requirements
+
+    async def fake_save_build(session, build):
+        recorded["build"] = build
+        return build
+
+    def fake_delay(requirements_dict, build_dict):
+        recorded["queued"] = (requirements_dict, build_dict)
+
+    app.dependency_overrides[get_db_session] = fake_db
+    monkeypatch.setitem(analyst_api._SESSIONS, analyst_session.session_id, analyst_session)
+    monkeypatch.setattr("factory.api.analyst.build_requirements", fake_build_requirements)
+    monkeypatch.setattr("factory.api.analyst.save_requirements", fake_save_requirements)
+    monkeypatch.setattr("factory.api.analyst.save_build", fake_save_build)
+    monkeypatch.setattr("factory.api.analyst.run_pipeline.delay", fake_delay)
+
+    response = await client.post(
+        f"/api/v1/analyst/sessions/{analyst_session.session_id}/commission?org_id={other_org_id}"
+    )
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert recorded["org_id"] == str(session_org_id)
+    assert recorded["build"].org_id == session_org_id
+    assert recorded["build"].status == BuildStatus.QUEUED

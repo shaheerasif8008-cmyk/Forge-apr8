@@ -19,4 +19,5 @@ portal/employee_app/node_modules
 portal/employee_app/dist-electron
 portal/employee_app/release
 portal/factory_portal/.next
+portal/factory_portal/node_modules
 portal/factory_portal/out

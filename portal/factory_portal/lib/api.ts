@@ -154,9 +154,9 @@ export async function previewBlueprint(requirements: Record<string, unknown>): P
   });
 }
 
-export async function commissionFromSession(sessionId: string, orgId: string): Promise<{ commission_id: string; build_id: string }> {
+export async function commissionFromSession(sessionId: string): Promise<{ commission_id: string; build_id: string }> {
   return getJson<{ commission_id: string; build_id: string }>(
-    `${resolveFactoryApiBaseUrl()}/api/v1/analyst/sessions/${sessionId}/commission?org_id=${encodeURIComponent(orgId)}`,
+    `${resolveFactoryApiBaseUrl()}/api/v1/analyst/sessions/${sessionId}/commission`,
     { method: "POST" },
   );
 }

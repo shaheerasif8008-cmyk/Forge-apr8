@@ -8,6 +8,7 @@ from typing import Any
 from factory.models.blueprint import EmployeeBlueprint
 from factory.models.requirements import EmployeeRequirements
 from factory.pipeline.builder.manifest_generator import build_package_manifest
+from factory.config import get_settings
 
 
 def _as_list(value: object) -> list[object]:
@@ -74,10 +75,17 @@ def _deliberation_config(blueprint: EmployeeBlueprint) -> dict[str, object]:
     component_ids = {component.component_id for component in blueprint.components}
     if "adversarial_review" not in component_ids:
         return {}
+    settings = get_settings()
+    if settings.openai_api_key:
+        primary = "gpt-4o"
+        fallback = "gpt-4o-mini"
+    else:
+        primary = settings.llm_primary_model
+        fallback = settings.llm_fallback_model
     return {
-        "advocate_models": ["openrouter/anthropic/claude-3.5-sonnet", "openrouter/openai/gpt-4o"],
-        "challenger_models": ["openrouter/openai/gpt-4o", "openrouter/anthropic/claude-3.5-haiku"],
-        "adjudicator_model": "openrouter/anthropic/claude-3.5-sonnet",
+        "advocate_models": [primary, fallback],
+        "challenger_models": [fallback, primary],
+        "adjudicator_model": primary,
         "max_reruns": 3,
         "max_time_seconds": 600,
         "trigger_conditions": ["high_risk_output", "irreversible_action"],
