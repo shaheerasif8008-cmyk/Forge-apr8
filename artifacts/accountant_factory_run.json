@@ -1,0 +1,103 @@
+{
+  "requirements_id": "13078c02-a99a-42a7-b374-d3bd2647233f",
+  "build_id": "a7e548d0-36a1-4dae-8957-791060582d08",
+  "blueprint_id": "37865b45-448a-42d6-8c4b-b04a0f365585",
+  "build_status_after_generation": "generating",
+  "build_dir": "/tmp/forge-builds/a7e548d0-36a1-4dae-8957-791060582d08",
+  "copied_components": [
+    "models/anthropic_provider",
+    "work/workflow_executor",
+    "work/communication_manager",
+    "work/scheduler_manager",
+    "work/draft_generator",
+    "tools/email_tool",
+    "tools/calendar_tool",
+    "tools/messaging_tool",
+    "tools/crm_tool",
+    "data/operational_memory",
+    "data/working_memory",
+    "data/context_assembler",
+    "data/org_context",
+    "quality/confidence_scorer",
+    "quality/audit_system",
+    "quality/input_protection",
+    "quality/verification_layer",
+    "quality/autonomy_manager",
+    "quality/explainability"
+  ],
+  "meta_status": 200,
+  "meta": {
+    "employee_name": "Finley",
+    "role_title": "AI Accountant",
+    "workflow": "executive_assistant",
+    "badge": "Hosted Web",
+    "capabilities": [
+      "Draft month-end close checklist and status updates",
+      "Prepare aging summaries and follow-up drafts for overdue invoices",
+      "Classify expenses and flag anomalies for approval"
+    ],
+    "deployment_format": "web"
+  },
+  "task_status": 200,
+  "task_response": {
+    "task_id": "7f7c4970-b1dd-4cb5-bfb9-2bacf5aa4adb",
+    "status": "completed",
+    "output": "Review this AP aging list and draft follow-up actions: INV-102 is 45 days overdue for $12,400, INV-104 is 12 days overdue for $1,980, INV-099 paid.",
+    "brief": {
+      "title": "Executive Assistant Update",
+      "executive_summary": "Review this AP aging list and draft follow-up actions: INV-102 is 45 days overdue for $12,400, INV-104 is 12 days overdue for $1,980, INV-099 paid.",
+      "drafted_response": "I've reviewed the request. Review this AP aging list and draft follow-up actions: INV-102 is 45 days overdue for $12,400, INV-104 is 12 days overdue for $1,980, INV-099 paid. My next steps are: triage request, draft response, prepare follow-up. Tone: clear and action-oriented. - Finley",
+      "action_items": [
+        "triage request",
+        "draft response",
+        "prepare follow-up"
+      ],
+      "schedule_updates": [],
+      "crm_updates": [],
+      "confidence_score": 0.82,
+      "novel_options": [],
+      "recommended_option": "",
+      "flags": []
+    }
+  },
+  "novelty_status": 200,
+  "novelty_response": {
+    "task_id": "634ee3de-ffc1-499c-99d2-322e54ae0344",
+    "status": "awaiting_approval",
+    "output": "I haven't handled this exact situation before. Here are three approaches with tradeoffs.",
+    "brief": {
+      "title": "Guidance Needed",
+      "executive_summary": "I haven't handled this exact situation before. Here are three approaches with tradeoffs.",
+      "drafted_response": "I haven't handled this exact situation before. Here are three approaches: [A] Safest: Pause external action, gather missing facts, and confirm the right process for: We have a brand-new tax authority notice we have never handled before with unclear penalties.; [B] Faster: Take the most likely next step for: We have a brand-new tax authority notice we have never handled before with unclear penalties., but keep the action reversible and reviewable.; [C] Creative: Try a new approach for: We have a brand-new tax authority notice we have never handled before with unclear penalties., mark it as untested, and escalate results immediately. Recommended: A. - Finley",
+      "action_items": [
+        "Review options",
+        "Choose an approach",
+        "Confirm any constraints"
+      ],
+      "schedule_updates": [],
+      "crm_updates": [],
+      "confidence_score": 0.46,
+      "novel_options": [
+        {
+          "key": "A",
+          "label": "Safest",
+          "description": "Pause external action, gather missing facts, and confirm the right process for: We have a brand-new tax authority notice we have never handled before with unclear penalties."
+        },
+        {
+          "key": "B",
+          "label": "Faster",
+          "description": "Take the most likely next step for: We have a brand-new tax authority notice we have never handled before with unclear penalties., but keep the action reversible and reviewable."
+        },
+        {
+          "key": "C",
+          "label": "Creative",
+          "description": "Try a new approach for: We have a brand-new tax authority notice we have never handled before with unclear penalties., mark it as untested, and escalate results immediately."
+        }
+      ],
+      "recommended_option": "A",
+      "flags": [
+        "guidance required"
+      ]
+    }
+  }
+}

@@ -265,6 +265,8 @@ async def _run_component(
                 "executive_summary": result.summary,
                 "drafted_response": result.drafted_response,
                 "action_items": result.action_items,
+                "finance_actions": result.finance_actions,
+                "finance_metrics": plan.finance_metrics,
                 "schedule_updates": result.schedule_updates,
                 "crm_updates": result.crm_updates,
                 "confidence_score": result.confidence_score,
