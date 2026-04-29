@@ -6,13 +6,17 @@ from employee_runtime.workflow_packs.packs import BUILTIN_WORKFLOW_PACKS
 _PACKS: dict[str, WorkflowPack] = {pack.pack_id: pack for pack in BUILTIN_WORKFLOW_PACKS}
 
 
+def _copy_pack(pack: WorkflowPack) -> WorkflowPack:
+    return pack.model_copy(deep=True)
+
+
 def list_workflow_packs() -> list[WorkflowPack]:
-    return list(_PACKS.values())
+    return [_copy_pack(pack) for pack in _PACKS.values()]
 
 
 def get_workflow_pack(pack_id: str) -> WorkflowPack:
     try:
-        return _PACKS[pack_id]
+        return _copy_pack(_PACKS[pack_id])
     except KeyError as exc:
         raise ValueError(f"Unknown workflow pack '{pack_id}'. Available: {sorted(_PACKS)}") from exc
 
