@@ -9,6 +9,7 @@ from factory.models.blueprint import EmployeeBlueprint
 from factory.models.requirements import EmployeeRequirements
 from factory.pipeline.builder.manifest_generator import build_package_manifest
 from factory.config import get_settings
+from employee_runtime.workflow_packs import select_pack_ids
 
 
 def _as_list(value: object) -> list[object]:
@@ -38,8 +39,24 @@ async def generate_config(
         build_dir=build_dir,
         generated_files=generated_files,
     )
+    workflow_packs = select_pack_ids(
+        requirements.role_title or requirements.name,
+        list(requirements.required_tools),
+    )
+    kernel_baseline = {
+        "version": "1.0.0",
+        "required_lanes": ["knowledge_work", "business_process", "hybrid"],
+        "certification_required": True,
+    }
+    manifest_payload = manifest.model_dump(mode="json")
+    manifest_payload.update(
+        {
+            "workflow_packs": workflow_packs,
+            "kernel_baseline": kernel_baseline,
+        }
+    )
 
-    config: dict[str, Any] = manifest.model_dump(mode="json")
+    config: dict[str, Any] = dict(manifest_payload)
     api_auth_token = secrets.token_urlsafe(32)
     config.update({
         "employee_id": str(blueprint.id),
@@ -59,6 +76,8 @@ async def generate_config(
         "deployment_format": requirements.deployment_format,
         "auth_required": True,
         "api_auth_token": api_auth_token,
+        "workflow_packs": workflow_packs,
+        "kernel_baseline": kernel_baseline,
         "system_identity": blueprint.workflow_description,
         "people": _as_list(org_context.get("people")),
         "escalation_chain": _as_list(org_context.get("escalation_chain")),
@@ -66,7 +85,7 @@ async def generate_config(
         "practice_areas": practice_areas,
         "default_attorney": org_context.get("default_attorney", "Forge Review"),
         "deliberation_council": _deliberation_config(blueprint),
-        "manifest": manifest.model_dump(mode="json"),
+        "manifest": manifest_payload,
     })
     return config
 
