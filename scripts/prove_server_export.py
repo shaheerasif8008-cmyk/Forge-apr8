@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -440,6 +441,9 @@ def _write_bundle_env(ctx: ProofContext, bundle_dir: Path) -> None:
 
 def _read_host_port(bundle_dir: Path) -> int:
     compose_text = (bundle_dir / "docker-compose.yml").read_text()
+    match = re.search(r"['\"]?(\d+):8001['\"]?", compose_text)
+    if match:
+        return int(match.group(1))
     for line in compose_text.splitlines():
         stripped = line.strip().strip('"').strip("'")
         if ":" in stripped and stripped[0].isdigit():
@@ -451,11 +455,50 @@ def _read_host_port(bundle_dir: Path) -> int:
     return 8001
 
 
+def _assign_available_host_port(bundle_dir: Path) -> int:
+    compose_path = bundle_dir / "docker-compose.yml"
+    compose_text = compose_path.read_text()
+    configured_port = _read_host_port(bundle_dir)
+    if _port_available(configured_port):
+        return configured_port
+
+    replacement_port = _find_free_port()
+    compose_path.write_text(
+        re.sub(
+            rf"(['\"]?){configured_port}:8001\1",
+            lambda match: f"{match.group(1)}{replacement_port}:8001{match.group(1)}",
+            compose_text,
+            count=1,
+        )
+    )
+    return replacement_port
+
+
+def _port_available(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.2)
+        if sock.connect_ex(("127.0.0.1", port)) == 0:
+            return False
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+def _find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
 def _start_employee_bundle(ctx: ProofContext, bundle_dir: Path) -> None:
+    port = _assign_available_host_port(bundle_dir)
     result = _run(["docker", "compose", "up", "-d", "--build"], cwd=bundle_dir, timeout=1800)
     if result.returncode != 0:
         raise RuntimeError(f"Bundle docker compose up failed: {(result.stderr or result.stdout)[-3000:]}")
-    port = _read_host_port(bundle_dir)
     ctx.employee_url = f"http://localhost:{port}"
 
     deadline = time.time() + 180

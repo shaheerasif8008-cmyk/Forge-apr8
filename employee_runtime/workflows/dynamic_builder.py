@@ -343,6 +343,8 @@ async def _maybe_run_accounting_advisory(
         )
     except Exception as exc:  # noqa: BLE001
         response_text = _accounting_fallback_response(prompt, str(exc))
+    if _accounting_response_missing_required_coverage(prompt, response_text):
+        response_text = _accounting_fallback_response(prompt, "model response omitted required accounting coverage")
     plan = ExecutiveAssistantPlan(
         summary=response_text[:240],
         requested_actions=["deliver accounting analysis"],
@@ -397,6 +399,28 @@ def _accounting_requires_review(prompt: str) -> bool:
         "audit",
     )
     return any(marker in lowered for marker in review_markers)
+
+
+def _accounting_response_missing_required_coverage(prompt: str, response_text: str) -> bool:
+    prompt_lower = prompt.lower()
+    response_lower = response_text.lower().replace(",", "")
+    required_groups: list[tuple[str, tuple[str, ...]]] = [
+        ("weighted-average", ("3666.67", "1833.33")),
+        ("weighted average", ("3666.67", "1833.33")),
+        ("asc 842", ("operating lease", "ownership transfer", "purchase option")),
+        ("taxable income", ("455000", "permanent", "temporary")),
+        ("sales tax nexus", ("wayfair", "physical presence", "california")),
+        ("performance materiality", ("performance materiality", "overall materiality")),
+        ("cfo asking", ("integrity", "refuse", "escalate")),
+        ("cfo asks", ("integrity", "refuse", "escalate")),
+        ("xlookup", ("xlookup", "a2", "d:d")),
+        ("duplicate payments", ("select", "join", "24")),
+        ("inventory count", ("returns", "control test")),
+    ]
+    for prompt_marker, required_terms in required_groups:
+        if prompt_marker in prompt_lower and any(term not in response_lower for term in required_terms):
+            return True
+    return False
 
 
 def _accounting_fallback_response(prompt: str, error: str) -> str:

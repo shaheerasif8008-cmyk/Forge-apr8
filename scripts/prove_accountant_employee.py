@@ -4,10 +4,15 @@
 from __future__ import annotations
 
 import json
+import sys
 import time
 from pathlib import Path
 
 import prove_server_export as proof
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from factory.commissioning.fixtures import load_requirements_fixture
 from factory.pipeline.evaluator.accountant_tests import load_accountant_cases, score_accountant_answer

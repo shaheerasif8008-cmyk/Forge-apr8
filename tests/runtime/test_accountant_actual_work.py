@@ -38,6 +38,15 @@ class FailingAccountingModel:
         raise RuntimeError("model unavailable")
 
 
+class PartialAccountingModel:
+    async def complete(self, messages, **kwargs):  # noqa: ANN001, ANN003
+        return (
+            "ASC 606 five steps: identify the contract, identify performance obligations, "
+            "determine transaction price, allocate price, recognize revenue. "
+            "This should be reviewed by a qualified human."
+        )
+
+
 @pytest.mark.anyio
 async def test_accounting_advisory_fallback_handles_multi_part_accounting_cases() -> None:
     result = await _maybe_run_accounting_advisory(
@@ -50,6 +59,24 @@ async def test_accounting_advisory_fallback_handles_multi_part_accounting_cases(
     )
 
     finance_summary = result["workflow_output"]["plan"]["finance_summary"]
+    assert "$3,666.67" in finance_summary
+    assert "$1,833.33" in finance_summary
+    assert "Operating lease" in finance_summary
+
+
+@pytest.mark.anyio
+async def test_accounting_advisory_augments_partial_model_answer_for_required_accounting_work() -> None:
+    result = await _maybe_run_accounting_advisory(
+        (
+            "Under ASC 606 list the five steps, calculate weighted-average inventory COGS and ending inventory, "
+            "and classify an ASC 842 lease."
+        ),
+        {"identity_layers": {"layer_2_role_definition": "You are Finley, AI Accountant."}},
+        {"litellm_router": PartialAccountingModel()},
+    )
+
+    finance_summary = result["workflow_output"]["plan"]["finance_summary"]
+    assert "ASC 606" in finance_summary
     assert "$3,666.67" in finance_summary
     assert "$1,833.33" in finance_summary
     assert "Operating lease" in finance_summary
