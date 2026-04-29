@@ -203,7 +203,7 @@ async def test_cost_math_uses_real_usage_counts(
             }
 
     async def fake_create_client(settings):
-        return _FakeClient()
+        return _FakeClient(), "anthropic/claude-3-5-sonnet-20241022"
 
     def fake_run_generated_tests(*, test_path, build_dir, timeout):
         return subprocess.CompletedProcess(args=["pytest"], returncode=0, stdout="passed", stderr="")

@@ -77,6 +77,8 @@ class _FakeAsyncClient:
         raise AssertionError(f"Unexpected PUT path: {path}")
 
     async def get(self, path: str) -> _Response:
+        if path == "/api/v1/meta":
+            return _Response(200, {"workflow": "legal_intake"})
         if path == "/api/v1/approvals":
             return _Response(200, [])
         if path == "/api/v1/metrics":
