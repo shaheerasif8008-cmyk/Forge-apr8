@@ -61,7 +61,7 @@ BUILTIN_WORKFLOW_PACKS: list[WorkflowPack] = [
             ),
         ],
         roi_metrics={
-            "default_minutes_saved": 45.0,
+            "default_minutes_saved": 30.0,
             "follow_up_minutes_saved": 12.0,
             "briefing_minutes_saved": 20.0,
         },
@@ -125,7 +125,7 @@ BUILTIN_WORKFLOW_PACKS: list[WorkflowPack] = [
             ),
         ],
         roi_metrics={
-            "default_minutes_saved": 60.0,
+            "default_minutes_saved": 25.0,
             "status_update_minutes_saved": 15.0,
             "exception_triage_minutes_saved": 25.0,
         },
@@ -253,7 +253,7 @@ BUILTIN_WORKFLOW_PACKS: list[WorkflowPack] = [
             ),
         ],
         roi_metrics={
-            "default_minutes_saved": 55.0,
+            "default_minutes_saved": 40.0,
             "intake_triage_minutes_saved": 22.0,
             "contract_summary_minutes_saved": 35.0,
         },
