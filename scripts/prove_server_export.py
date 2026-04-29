@@ -165,6 +165,8 @@ def _request_text(url: str, *, timeout: int = 10) -> tuple[int, str]:
             return response.status, response.read().decode()
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read().decode()
+    except (ConnectionResetError, TimeoutError, socket.timeout, urllib.error.URLError) as exc:
+        return 0, str(exc)
 
 
 def _docker_ready() -> tuple[bool, str]:
@@ -427,6 +429,10 @@ def _write_bundle_env(ctx: ProofContext, bundle_dir: Path) -> None:
     for key in ("ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY"):
         if ctx.factory_env.get(key):
             env_data[key] = ctx.factory_env[key]
+    config_path = bundle_dir / "app" / "config.yaml"
+    if config_path.exists():
+        runtime_config = json.loads(config_path.read_text())
+        ctx.employee_key = str(runtime_config.get("api_auth_token") or ctx.employee_key)
     env_data["EMPLOYEE_API_KEY"] = ctx.employee_key
     env_path.write_text("".join(f"{key}={value}\n" for key, value in sorted(env_data.items())))
     ctx.record("bundle_env", env_path=str(env_path))

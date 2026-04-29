@@ -31,7 +31,7 @@ LEGAL_BASELINE_COMPONENTS: tuple[tuple[str, str, dict[str, object]], ...] = (
 )
 
 EXECUTIVE_ASSISTANT_COMPONENTS: tuple[tuple[str, str, dict[str, object]], ...] = (
-    ("models", "anthropic_provider", {"model": "claude-3-5-sonnet-20241022"}),
+    ("models", "litellm_router", {}),
     ("work", "workflow_executor", {}),
     ("work", "communication_manager", {}),
     ("work", "scheduler_manager", {}),
@@ -132,7 +132,10 @@ def _component_config(component_id: str, config: dict[str, object]) -> dict[str,
     if component_id != "litellm_router":
         return config
     settings = get_settings()
-    if settings.openai_api_key:
+    if settings.openrouter_api_key:
+        primary = settings.llm_primary_model
+        fallback = settings.llm_fallback_model
+    elif settings.openai_api_key:
         primary = "gpt-4o"
         fallback = "gpt-4o-mini"
     else:

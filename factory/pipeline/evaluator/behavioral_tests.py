@@ -23,9 +23,16 @@ async def run_behavioral_tests(base_url: str, *, auth_headers: dict[str, str] | 
         timeout=EVALUATOR_REQUEST_TIMEOUT_SECONDS,
         headers=auth_headers,
     ) as client:
+        meta = await client.get("/api/v1/meta")
+        workflow = meta.json().get("workflow", "") if meta.status_code == 200 else ""
+        behavioral_input = (
+            "We have a novel vendor notice with unclear accounting impact. Please propose options before taking action."
+            if workflow == "executive_assistant"
+            else AMBIGUOUS
+        )
         ambiguous = await client.post(
             "/api/v1/tasks",
-            json={"input": AMBIGUOUS, "context": {"input_type": "email"}},
+            json={"input": behavioral_input, "context": {"input_type": "email"}},
         )
         tests_run += 1
         summary_text = ""
@@ -33,9 +40,13 @@ async def run_behavioral_tests(base_url: str, *, auth_headers: dict[str, str] | 
             failures.append("Ambiguous intake failed")
         else:
             payload = ambiguous.json()
-            decision = payload.get("brief", {}).get("analysis", {}).get("qualification_decision")
             summary_text = payload.get("brief", {}).get("executive_summary", "")
-            if decision not in {"needs_review", "qualified"}:
+            decision = payload.get("brief", {}).get("analysis", {}).get("qualification_decision")
+            if workflow == "executive_assistant":
+                options = payload.get("brief", {}).get("novel_options", [])
+                if not options:
+                    failures.append("Novel executive task did not offer options")
+            elif decision not in {"needs_review", "qualified"}:
                 failures.append("Ambiguous intake returned unexpected decision")
 
         settings_put = await client.put("/api/v1/settings", json={"values": {"quiet_hours": "after_5pm"}})

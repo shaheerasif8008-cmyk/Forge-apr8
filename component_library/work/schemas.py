@@ -115,6 +115,9 @@ class ExecutiveAssistantInput(BaseModel):
 class ExecutiveAssistantPlan(BaseModel):
     summary: str
     requested_actions: list[str] = Field(default_factory=list)
+    finance_actions: list[str] = Field(default_factory=list)
+    finance_summary: str = ""
+    finance_metrics: dict[str, float] = Field(default_factory=dict)
     stakeholders: list[str] = Field(default_factory=list)
     meeting_topics: list[str] = Field(default_factory=list)
     deadlines: list[str] = Field(default_factory=list)
@@ -132,6 +135,7 @@ class ExecutiveAssistantResult(BaseModel):
     summary: str
     drafted_response: str = ""
     action_items: list[str] = Field(default_factory=list)
+    finance_actions: list[str] = Field(default_factory=list)
     schedule_updates: list[str] = Field(default_factory=list)
     crm_updates: list[str] = Field(default_factory=list)
     confidence_score: float = 0.0

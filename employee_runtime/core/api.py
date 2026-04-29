@@ -97,6 +97,17 @@ def _import_packaged_component_modules() -> None:
 _import_packaged_component_modules()
 
 
+class NoStoreStaticFiles(StaticFiles):
+    """Serve generated employee apps without reusing stale localhost assets."""
+
+    async def get_response(self, path: str, scope: dict[str, Any]) -> Response:
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
+
 class TaskRequest(BaseModel):
     task_id: str = ""
     input: str
@@ -1367,6 +1378,8 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
     async def authenticate_api_requests(request: Request, call_next):
         if request.url.path in {"/health", "/api/v1/health", "/api/v1/ready", "/api/v1/recovery"}:
             return await call_next(request)
+        if not request.url.path.startswith("/api/v1"):
+            return await call_next(request)
         try:
             authorize_request(request, auth_config)
         except HTTPException as exc:
@@ -1745,7 +1758,7 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
         if not static_path.is_absolute():
             static_path = Path.cwd() / static_path
         if static_path.exists():
-            app.mount("/", StaticFiles(directory=static_path, html=True), name="employee-frontend")
+            app.mount("/", NoStoreStaticFiles(directory=static_path, html=True), name="employee-frontend")
 
     return app
 

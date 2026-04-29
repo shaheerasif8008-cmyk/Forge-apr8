@@ -76,7 +76,10 @@ def _deliberation_config(blueprint: EmployeeBlueprint) -> dict[str, object]:
     if "adversarial_review" not in component_ids:
         return {}
     settings = get_settings()
-    if settings.openai_api_key:
+    if settings.openrouter_api_key:
+        primary = settings.llm_primary_model
+        fallback = settings.llm_fallback_model
+    elif settings.openai_api_key:
         primary = "gpt-4o"
         fallback = "gpt-4o-mini"
     else:

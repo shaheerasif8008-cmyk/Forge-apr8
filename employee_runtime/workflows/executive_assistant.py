@@ -78,6 +78,8 @@ def create_handlers(components: dict[str, Any]) -> dict[str, NodeHandler]:
             "executive_summary": response.summary,
             "drafted_response": response.drafted_response,
             "action_items": response.action_items,
+            "finance_actions": response.finance_actions,
+            "finance_metrics": plan.finance_metrics,
             "schedule_updates": response.schedule_updates,
             "confidence_score": response.confidence_score,
             "novel_options": response.novel_options,

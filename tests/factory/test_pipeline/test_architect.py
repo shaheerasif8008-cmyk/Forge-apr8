@@ -36,7 +36,7 @@ async def test_component_selector_always_includes_model(
 
 
 @pytest.mark.anyio
-async def test_component_selector_prefers_openai_router_when_configured(
+async def test_component_selector_prefers_openrouter_router_when_configured(
     sample_requirements: EmployeeRequirements,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -44,6 +44,7 @@ async def test_component_selector_prefers_openai_router_when_configured(
         "factory.pipeline.architect.component_selector.get_settings",
         lambda: SimpleNamespace(
             openai_api_key="sk-test",
+            openrouter_api_key="sk-or-test",
             llm_primary_model="openrouter/anthropic/claude-3.5-sonnet",
             llm_fallback_model="openrouter/openai/gpt-4o",
             use_llm_architect=False,
@@ -53,8 +54,8 @@ async def test_component_selector_prefers_openai_router_when_configured(
     components = await select_components(sample_requirements)
     router = next(component for component in components if component.component_id == "litellm_router")
 
-    assert router.config["primary_model"] == "gpt-4o"
-    assert router.config["fallback_model"] == "gpt-4o-mini"
+    assert router.config["primary_model"] == "openrouter/anthropic/claude-3.5-sonnet"
+    assert router.config["fallback_model"] == "openrouter/openai/gpt-4o"
 
 
 @pytest.mark.anyio

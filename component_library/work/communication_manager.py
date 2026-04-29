@@ -58,6 +58,24 @@ class CommunicationManager(WorkCapability):
                 recommended_option=plan.recommended_option,
                 needs_guidance=True,
             )
+        if plan.finance_actions:
+            drafted_response = (
+                f"{plan.finance_summary or plan.summary} "
+                "Prepared concrete next steps: "
+                + "; ".join(plan.finance_actions[:3])
+                + f". - {self._signature}"
+            )
+            return ExecutiveAssistantResult(
+                title="Accounting Operations Update",
+                summary=plan.finance_summary or plan.summary,
+                drafted_response=drafted_response,
+                action_items=(plan.finance_actions + actions)[:6],
+                finance_actions=plan.finance_actions[:5],
+                confidence_score=0.88 if not plan.requires_approval else 0.73,
+                novel_options=plan.novel_options,
+                recommended_option=plan.recommended_option,
+                needs_guidance=False,
+            )
         drafted_response = (
             f"I've reviewed the request. {plan.summary} "
             f"My next steps are: {', '.join(actions[:3])}. "

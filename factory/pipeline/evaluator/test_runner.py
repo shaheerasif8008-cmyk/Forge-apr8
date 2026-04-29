@@ -9,6 +9,7 @@ import structlog
 
 from factory.models.build import Build, BuildLog, BuildStatus
 from factory.pipeline.evaluator.behavioral_tests import run_behavioral_tests
+from factory.pipeline.evaluator.accountant_tests import run_accountant_tests
 from factory.pipeline.evaluator.container_runner import (
     find_free_port,
     start_container,
@@ -24,6 +25,13 @@ logger = structlog.get_logger(__name__)
 
 
 def _suite_profile(build: Build) -> str:
+    explicit_profile = str(build.metadata.get("evaluation_profile", "")).strip()
+    if explicit_profile:
+        return explicit_profile
+    employee_role = str(build.metadata.get("employee_role", "")).lower()
+    employee_name = str(build.metadata.get("employee_name", "")).lower()
+    if "accountant" in employee_role or "accountant" in employee_name:
+        return "accountant"
     return str(build.metadata.get("workflow_id", "legal_intake"))
 
 
@@ -64,7 +72,9 @@ async def evaluate(build: Build) -> Build:
             "behavioral": await _run_suite(run_behavioral_tests, base_url, auth_headers),
             "hallucination": await _run_suite(run_hallucination_tests, base_url, auth_headers),
         }
-        if workflow_id == "executive_assistant":
+        if workflow_id == "accountant":
+            suites["functional"] = await _run_suite(run_accountant_tests, base_url, auth_headers)
+        elif workflow_id == "executive_assistant":
             suites["functional"] = await _run_suite(run_executive_assistant_tests, base_url, auth_headers)
         else:
             suites["functional"] = await _run_suite(run_functional_tests, base_url, auth_headers)
