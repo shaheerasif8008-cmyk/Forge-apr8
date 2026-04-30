@@ -1314,6 +1314,8 @@ class EmployeeRuntimeService:
             "badge": self.config["ui"].get("app_badge", ""),
             "capabilities": self.config["ui"].get("capabilities", []),
             "deployment_format": self.config["deployment_format"],
+            "workflow_packs": list(self.config.get("workflow_packs", [])),
+            "kernel_baseline": dict(self.config.get("kernel_baseline", _default_kernel_baseline())),
         }
 
     async def get_reasoning_records(self, task_id: str) -> list[dict[str, Any]]:
@@ -1877,9 +1879,20 @@ def _normalize_runtime_config(employee_id: str, config: dict[str, Any]) -> dict[
         "auth_required": config.get("auth_required", raw_manifest.get("auth_required", False)),
         "api_auth_token": config.get("api_auth_token", raw_manifest.get("api_auth_token", "")),
         "workflow_packs": list(raw_manifest.get("workflow_packs", config.get("workflow_packs", ["executive_assistant_pack"]))),
+        "kernel_baseline": dict(raw_manifest.get("kernel_baseline", config.get("kernel_baseline", _default_kernel_baseline()))),
         "session_factory": config.get("session_factory"),
         "conversation_repository": config.get("conversation_repository"),
         "task_repository": config.get("task_repository"),
+    }
+
+
+def _default_kernel_baseline() -> dict[str, Any]:
+    return {
+        "version": "1.0.0",
+        "required_lanes": ["knowledge_work", "business_process", "hybrid"],
+        "certification_required": True,
+        "tool_action_boundary": "tool_broker",
+        "sovereign_export_required": True,
     }
 
 

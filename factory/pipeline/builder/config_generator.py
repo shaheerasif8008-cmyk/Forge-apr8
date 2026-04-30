@@ -47,6 +47,8 @@ async def generate_config(
         "version": "1.0.0",
         "required_lanes": ["knowledge_work", "business_process", "hybrid"],
         "certification_required": True,
+        "tool_action_boundary": "tool_broker",
+        "sovereign_export_required": True,
     }
     manifest_payload = manifest.model_dump(mode="json")
     manifest_payload.update(

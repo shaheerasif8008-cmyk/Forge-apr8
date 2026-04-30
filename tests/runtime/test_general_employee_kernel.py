@@ -132,3 +132,18 @@ async def test_runtime_persists_kernel_plan_and_roi_metadata() -> None:
     assert kernel["task_lane"] == "hybrid"
     assert kernel["plan"]["required_tools"]
     assert metrics["roi"]["estimated_minutes_saved"] > 0
+
+
+@pytest.mark.anyio
+async def test_runtime_meta_exposes_kernel_certification_contract() -> None:
+    app = create_employee_app("kernel-avery", _kernel_manifest())
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/v1/meta")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_packs"] == ["executive_assistant_pack", "operations_coordinator_pack"]
+    assert payload["kernel_baseline"]["required_lanes"] == ["knowledge_work", "business_process", "hybrid"]
+    assert payload["kernel_baseline"]["tool_action_boundary"] == "tool_broker"
+    assert payload["kernel_baseline"]["sovereign_export_required"] is True
