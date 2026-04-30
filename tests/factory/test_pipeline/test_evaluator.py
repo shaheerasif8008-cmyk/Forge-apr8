@@ -29,6 +29,7 @@ async def test_evaluator_runs_black_box_suites(sample_build, monkeypatch) -> Non
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.stop_container", fake_stop)
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.wait_for_health", fake_wait)
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.run_functional_tests", fake_suite)
+    monkeypatch.setattr("factory.pipeline.evaluator.test_runner.run_baseline_tests", fake_suite)
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.run_security_tests", fake_suite)
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.run_behavioral_tests", fake_suite)
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.run_hallucination_tests", fake_suite)

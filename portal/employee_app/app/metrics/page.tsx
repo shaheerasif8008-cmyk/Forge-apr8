@@ -53,6 +53,9 @@ export default function MetricsPage() {
               <MetricCard label="Average Confidence" value={dashboard.kpis.avg_confidence.toFixed(2)} />
               <MetricCard label="Pending Approvals" value={String(dashboard.kpis.pending_approvals)} />
               <MetricCard label="Avg Duration (s)" value={dashboard.kpis.avg_duration_seconds.toFixed(1)} />
+              {typeof dashboard.kpis.estimated_minutes_saved === "number" ? (
+                <MetricCard label="Minutes Saved" value={dashboard.kpis.estimated_minutes_saved.toFixed(0)} />
+              ) : null}
             </div>
 
             <div className="mt-6 grid gap-6 lg:grid-cols-2">

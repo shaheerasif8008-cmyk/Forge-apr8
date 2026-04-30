@@ -12,14 +12,16 @@ import type { MemorySnapshot, UpdateStatus } from "./types";
 
 type Props = {
   apiBase: string;
+  enabledPanels: string[];
   onApprovalsCountChange?: (count: number) => void;
   onUrgentApproval?: (approval: import("./types").Approval) => void;
 };
 
-export function SidebarPanels({ apiBase, onApprovalsCountChange, onUrgentApproval }: Props) {
+export function SidebarPanels({ apiBase, enabledPanels, onApprovalsCountChange, onUrgentApproval }: Props) {
   const [metrics, setMetrics] = useState<Record<string, unknown>>({});
   const [memory, setMemory] = useState<MemorySnapshot>({});
   const [updates, setUpdates] = useState<UpdateStatus>({});
+  const enabled = new Set(enabledPanels);
 
   useEffect(() => {
     const load = async () => {
@@ -37,14 +39,16 @@ export function SidebarPanels({ apiBase, onApprovalsCountChange, onUrgentApprova
 
   return (
     <div className="flex h-full flex-col gap-4">
-      <InboxPanel
-        apiBase={apiBase}
-        onApprovalsCountChange={onApprovalsCountChange}
-        onUrgentApproval={onUrgentApproval}
-      />
-      <ActivityPanel apiBase={apiBase} />
+      {enabled.has("inbox") ? (
+        <InboxPanel
+          apiBase={apiBase}
+          onApprovalsCountChange={onApprovalsCountChange}
+          onUrgentApproval={onUrgentApproval}
+        />
+      ) : null}
+      {enabled.has("activity") ? <ActivityPanel apiBase={apiBase} /> : null}
 
-      <Panel title="Settings">
+      {enabled.has("settings") ? <Panel title="Settings">
         <div className="rounded-[22px] bg-paper/55 p-4">
           <div className="text-sm leading-6 text-ink/70">
             Communication, approval limits, integrations, and org map now live on a dedicated settings route.
@@ -57,9 +61,9 @@ export function SidebarPanels({ apiBase, onApprovalsCountChange, onUrgentApprova
             Open Settings
           </Link>
         </div>
-      </Panel>
+      </Panel> : null}
 
-      <Panel title="Memory">
+      {enabled.has("memory") ? <Panel title="Memory">
         <div className="space-y-3 text-sm text-ink/75">
           {Object.entries(memory).filter(([, items]) => items.length > 0).slice(0, 3).map(([category, items]) => (
             <div key={category} className="rounded-2xl bg-paper/60 p-3">
@@ -78,12 +82,12 @@ export function SidebarPanels({ apiBase, onApprovalsCountChange, onUrgentApprova
             className="inline-flex items-center rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent/90"
             href="/memory"
           >
-            Open Memory Browser
-          </Link>
-        </div>
-      </Panel>
+          Open Memory Browser
+        </Link>
+      </div>
+      </Panel> : null}
 
-      <Panel title="Updates">
+      {enabled.has("updates") ? <Panel title="Updates">
         <div className="space-y-3 text-sm text-ink/75">
           {Object.entries(updates).map(([key, value]) => (
             <div key={key} className="rounded-2xl bg-paper/60 p-3">
@@ -92,9 +96,9 @@ export function SidebarPanels({ apiBase, onApprovalsCountChange, onUrgentApprova
             </div>
           ))}
         </div>
-      </Panel>
+      </Panel> : null}
 
-      <Panel title="Metrics">
+      {enabled.has("metrics") ? <Panel title="Metrics">
         <div className="grid grid-cols-2 gap-3 text-sm">
           {Object.entries(metrics).map(([key, value]) => (
             <div key={key} className="rounded-2xl bg-paper/60 p-3">
@@ -109,7 +113,7 @@ export function SidebarPanels({ apiBase, onApprovalsCountChange, onUrgentApprova
         >
           Open Metrics Dashboard
         </Link>
-      </Panel>
+      </Panel> : null}
     </div>
   );
 }

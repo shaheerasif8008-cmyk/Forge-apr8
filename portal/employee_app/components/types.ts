@@ -34,6 +34,13 @@ export type EmployeeMeta = {
   badge: string;
   capabilities: string[];
   deployment_format: string;
+  enabled_sidebar_panels?: string[];
+  workflow_packs?: string[];
+  kernel_baseline?: {
+    version?: string;
+    required_lanes?: string[];
+    certification_required?: boolean;
+  };
 };
 
 export type MemorySnapshot = Record<string, { key: string; value: Record<string, unknown> }[]>;
@@ -178,6 +185,7 @@ export type MetricsDashboard = {
     avg_confidence: number;
     pending_approvals: number;
     avg_duration_seconds: number;
+    estimated_minutes_saved?: number;
   };
   tasks_by_day: Array<{ date: string; tasks: number }>;
   approval_mix: Array<{ name: string; value: number }>;

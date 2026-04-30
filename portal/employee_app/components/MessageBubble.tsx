@@ -11,11 +11,12 @@ type Props = {
 export function MessageBubble({ message, onDecision }: Props) {
   if (message.message_type === "approval_request") {
     const approval = message as Approval;
+    const isPending = approval.metadata?.status === "pending";
     return (
       <div className="w-full">
         <BriefCard
           brief={approval.metadata?.brief ?? {}}
-          onDecision={(decision) => onDecision(message.id, decision)}
+          onDecision={isPending ? (decision) => onDecision(message.id, decision) : undefined}
         />
       </div>
     );

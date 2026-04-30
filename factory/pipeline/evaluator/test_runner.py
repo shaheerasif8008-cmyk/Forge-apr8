@@ -8,8 +8,9 @@ from typing import Any
 import structlog
 
 from factory.models.build import Build, BuildLog, BuildStatus
-from factory.pipeline.evaluator.behavioral_tests import run_behavioral_tests
 from factory.pipeline.evaluator.accountant_tests import run_accountant_tests
+from factory.pipeline.evaluator.baseline_tests import run_baseline_tests
+from factory.pipeline.evaluator.behavioral_tests import run_behavioral_tests
 from factory.pipeline.evaluator.container_runner import (
     find_free_port,
     start_container,
@@ -68,6 +69,7 @@ async def evaluate(build: Build) -> Build:
         auth_headers = {"Authorization": f"Bearer {api_token}"} if api_token else None
         workflow_id = _suite_profile(build)
         suites = {
+            "baseline": await _run_suite(run_baseline_tests, base_url, auth_headers),
             "security": await _run_suite(run_security_tests, base_url, auth_headers),
             "behavioral": await _run_suite(run_behavioral_tests, base_url, auth_headers),
             "hallucination": await _run_suite(run_hallucination_tests, base_url, auth_headers),

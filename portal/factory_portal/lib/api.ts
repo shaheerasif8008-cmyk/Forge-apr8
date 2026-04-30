@@ -223,3 +223,22 @@ export async function scheduleModuleUpgrade(
     body: JSON.stringify(payload),
   });
 }
+
+export async function setLearningState(deploymentId: string, enabled: boolean): Promise<Record<string, unknown>> {
+  return getJson<Record<string, unknown>>(`${resolveFactoryApiBaseUrl()}/api/v1/updates/${deploymentId}/learning`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export async function addPolicyRule(
+  deploymentId: string,
+  payload: { rule_id: string; description: string; condition: string; action: string; priority: number; active: boolean },
+): Promise<Record<string, unknown>> {
+  return getJson<Record<string, unknown>>(`${resolveFactoryApiBaseUrl()}/api/v1/updates/${deploymentId}/policies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}

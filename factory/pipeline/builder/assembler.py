@@ -62,6 +62,7 @@ async def assemble(
         ignore=shutil.ignore_patterns("dist", "out", "node_modules", ".next", "*.dmg", "*.exe", "*.AppImage"),
     )
     runtime_config = await generate_config(blueprint, requirements, build_dir=str(build_dir), generated_files=[])
+    runtime_config["enabled_sidebar_panels"] = _enabled_sidebar_panels(blueprint)
     _write_employee_app_config(blueprint, requirements, build_dir, runtime_config)
     _copy_component_framework(build_dir / "component_library")
 

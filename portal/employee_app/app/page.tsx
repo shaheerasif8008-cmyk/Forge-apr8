@@ -9,6 +9,7 @@ import { SidebarPanels } from "@/components/SidebarPanels";
 import { StreamingIndicator } from "@/components/StreamingIndicator";
 import type { Approval } from "@/components/types";
 import type { ChatMessage, EmployeeMeta } from "@/components/types";
+import { resolveApproval } from "@/lib/api";
 
 export default function HomePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -119,16 +120,24 @@ export default function HomePage() {
         });
       }
       if (payload.type === "complete") {
+        const messageType = String(payload.message_type ?? "status_update") as ChatMessage["message_type"];
+        const messageId = String(payload.message_id ?? `assistant-${Date.now()}`);
+        const status = String(payload.status ?? "");
         setMessages((current) => {
           const withoutDraft = current.filter((message) => message.id !== "draft-stream");
           return [
             ...withoutDraft,
             {
-              id: `approval-${Date.now()}`,
+              id: messageId,
               role: "assistant",
               content: streamedText,
-              message_type: "approval_request",
-              metadata: { brief: payload.data },
+              message_type: messageType,
+              metadata: {
+                brief: payload.data,
+                task_id: payload.task_id ? String(payload.task_id) : undefined,
+                status: status === "awaiting_approval" ? "pending" : status,
+                kernel: payload.kernel,
+              },
             },
           ];
         });
@@ -166,6 +175,28 @@ export default function HomePage() {
     void window.forge?.notify?.("Urgent approval pending", summary.slice(0, 140), "/");
   }
 
+  async function handleDecision(messageId: string, decision: "approve" | "decline" | "modify") {
+    await resolveApproval(apiBase, messageId, decision);
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              metadata: {
+                ...(message.metadata ?? {}),
+                status: decision,
+                decision,
+              },
+            }
+          : message,
+      ),
+    );
+  }
+
+  const enabledPanels = meta?.enabled_sidebar_panels?.length
+    ? meta.enabled_sidebar_panels
+    : employeeAppConfig.enabledSidebarPanels;
+
   return (
     <main className="min-h-screen px-4 py-6 md:px-8">
       {dropActive ? (
@@ -192,7 +223,7 @@ export default function HomePage() {
 
           <div className="flex min-h-[60vh] flex-col gap-4 overflow-y-auto pb-4">
             {messages.map((message) => (
-              <MessageBubble key={message.id} message={message} onDecision={async () => undefined} />
+              <MessageBubble key={message.id} message={message} onDecision={handleDecision} />
             ))}
             {streaming ? <StreamingIndicator /> : null}
           </div>
@@ -211,6 +242,7 @@ export default function HomePage() {
         <aside className="min-h-[70vh]">
           <SidebarPanels
             apiBase={apiBase}
+            enabledPanels={enabledPanels}
             onApprovalsCountChange={handleApprovalsCountChange}
             onUrgentApproval={handleUrgentApproval}
           />

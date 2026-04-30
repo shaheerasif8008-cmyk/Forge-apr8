@@ -41,6 +41,7 @@ from employee_runtime.core.conversation_repository import (
     SqlAlchemyConversationRepository,
 )
 from employee_runtime.core.engine import EmployeeEngine
+from employee_runtime.core.kernel import classify_task, create_task_plan, estimate_roi, task_plan_to_context
 from employee_runtime.core.runtime_db import initialize_runtime_database, normalize_org_uuid
 from employee_runtime.core.task_repository import (
     InMemoryTaskRepository,
@@ -51,6 +52,7 @@ from employee_runtime.core.tool_broker import ToolBroker
 from employee_runtime.modules.behavior_manager import BehaviorManager
 from employee_runtime.modules.pulse_engine import DailyLoopRequest, PulseEngine
 from employee_runtime.shared.orm import KnowledgeChunkRow
+from employee_runtime.workflow_packs import get_workflow_pack
 
 
 OPTIONAL_COMPONENT_MODULES = (
@@ -388,6 +390,13 @@ class EmployeeRuntimeService:
     def _default_conversation_id(self) -> str:
         return self.config.get("default_conversation_id", "default")
 
+    def _workflow_packs(self) -> list[Any]:
+        pack_ids = self.config.get("workflow_packs", ["executive_assistant_pack"])
+        packs = []
+        for pack_id in pack_ids:
+            packs.append(get_workflow_pack(str(pack_id)))
+        return packs
+
     async def ensure_conversation(self, conversation_id: str = "") -> str:
         conv_id = conversation_id or self._default_conversation_id()
         if self.conversation_repository is None:
@@ -511,11 +520,16 @@ class EmployeeRuntimeService:
         delay_seconds = float(request.context.get("_test_runtime_delay_seconds", 0) or 0)
         if delay_seconds > 0:
             await asyncio.sleep(min(delay_seconds, 30.0))
+        packs = self._workflow_packs()
+        classification = classify_task(request.input, packs)
+        plan = create_task_plan(task_input=request.input, classification=classification, packs=packs)
+        kernel_context = task_plan_to_context(plan)
+        enriched_context = {**dict(request.context), **kernel_context}
         try:
             result = await self.engine.process_task(
                 request.input,
                 input_type=input_type,
-                metadata=request.context,
+                metadata=enriched_context,
                 conversation_id=conv_id,
                 task_id=task_id,
             )
@@ -541,6 +555,11 @@ class EmployeeRuntimeService:
         final_status = "awaiting_approval" if result.get("requires_human_approval") else "completed"
         summary = self._result_summary(result)
         card = self._result_card(result)
+        workflow_output = dict(result.get("workflow_output", {}))
+        workflow_output["kernel"] = {
+            **kernel_context["kernel"],
+            "classification": classification.model_dump(mode="json"),
+        }
         persisted = await self.task_repository.update_task(
             task_id,
             self.employee_id,
@@ -548,7 +567,7 @@ class EmployeeRuntimeService:
                 "status": final_status,
                 "response_summary": summary,
                 "result_card": card,
-                "workflow_output": dict(result.get("workflow_output", {})),
+                "workflow_output": workflow_output,
                 "state": dict(result),
                 "requires_human_approval": bool(result.get("requires_human_approval", False)),
                 "completed_at": datetime.now(UTC) if final_status == "completed" else None,
@@ -1195,6 +1214,14 @@ class EmployeeRuntimeService:
         ]
         outputs = [event for event in activity if event["event_type"] == "output_produced"]
         approvals = [event for event in activity if event["event_type"] == "approval_decided"]
+        corrections = await self.list_corrections()
+        packs = self._workflow_packs()
+        roi = estimate_roi(
+            packs,
+            completed_tasks=len(completed),
+            escalations=len([event for event in activity if event["event_type"] == "approval_requested"]),
+            rework_events=len(corrections),
+        )
         confidence_values = [
             event["details"].get("confidence", 0.0)
             for event in outputs
@@ -1208,6 +1235,7 @@ class EmployeeRuntimeService:
                 for decision in ("approve", "decline", "modify")
             },
             "avg_duration_seconds": 0.0,
+            "roi": roi,
         }
 
     async def metrics_dashboard(self) -> dict[str, Any]:
@@ -1258,6 +1286,7 @@ class EmployeeRuntimeService:
                 "avg_confidence": base_metrics["avg_confidence"],
                 "pending_approvals": pending_approvals,
                 "avg_duration_seconds": base_metrics["avg_duration_seconds"],
+                "estimated_minutes_saved": dict(base_metrics.get("roi", {})).get("estimated_minutes_saved", 0.0),
             },
             "tasks_by_day": [{"date": label, "tasks": task_counts[label]} for label in days],
             "approval_mix": [
@@ -1284,6 +1313,9 @@ class EmployeeRuntimeService:
             "badge": self.config["ui"].get("app_badge", ""),
             "capabilities": self.config["ui"].get("capabilities", []),
             "deployment_format": self.config["deployment_format"],
+            "enabled_sidebar_panels": self.config.get("enabled_sidebar_panels", []),
+            "workflow_packs": self.config.get("workflow_packs", []),
+            "kernel_baseline": self.config.get("kernel_baseline", {}),
         }
 
     async def get_reasoning_records(self, task_id: str) -> list[dict[str, Any]]:
@@ -1714,8 +1746,13 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
                     {"status": "running", "started_at": datetime.now(UTC)},
                 )
                 assert service.engine is not None
+                packs = service._workflow_packs()
+                classification = classify_task(payload["content"], packs)
+                plan = create_task_plan(task_input=payload["content"], classification=classification, packs=packs)
+                kernel_context = task_plan_to_context(plan)
                 async for event in service.engine.process_task_streaming(
                     payload["content"],
+                    metadata=kernel_context,
                     conversation_id=conversation_id,
                     task_id=task_id,
                 ):
@@ -1726,6 +1763,11 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
                         card = service._result_card(state)
                         summary = service._result_summary(state)
                         final_status = "awaiting_approval" if state.get("requires_human_approval") else "completed"
+                        workflow_output = dict(state.get("workflow_output", {}))
+                        workflow_output["kernel"] = {
+                            **kernel_context["kernel"],
+                            "classification": classification.model_dump(mode="json"),
+                        }
                         await service.task_repository.update_task(
                             task_id,
                             service.employee_id,
@@ -1733,13 +1775,13 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
                                 "status": final_status,
                                 "response_summary": summary,
                                 "result_card": card,
-                                "workflow_output": dict(state.get("workflow_output", {})),
+                                "workflow_output": workflow_output,
                                 "state": dict(state),
                                 "requires_human_approval": bool(state.get("requires_human_approval", False)),
                                 "completed_at": datetime.now(UTC) if final_status == "completed" else None,
                             },
                         )
-                        await service.add_message(
+                        message = await service.add_message(
                             conversation_id,
                             "assistant",
                             summary,
@@ -1748,7 +1790,17 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
                         )
                         for token in summary.split():
                             await websocket.send_json({"type": "token", "content": f"{token} "})
-                        await websocket.send_json({"type": "complete", "message_type": "brief_card", "data": card})
+                        await websocket.send_json(
+                            {
+                                "type": "complete",
+                                "message_type": message.get("message_type", "brief_card"),
+                                "message_id": message.get("id"),
+                                "task_id": task_id,
+                                "status": final_status,
+                                "data": card,
+                                "kernel": workflow_output["kernel"],
+                            }
+                        )
         except WebSocketDisconnect:
             return
 
@@ -1831,6 +1883,12 @@ def _normalize_runtime_config(employee_id: str, config: dict[str, Any]) -> dict[
         "default_attorney": config.get("default_attorney", "Forge Review"),
         "supervisor_email": config.get("supervisor_email", "supervisor@example.com"),
         "deployment_format": config.get("deployment_format", raw_manifest.get("deployment", {}).get("format", "web")),
+        "enabled_sidebar_panels": raw_manifest.get(
+            "enabled_sidebar_panels",
+            config.get("enabled_sidebar_panels", raw_manifest.get("ui", {}).get("enabled_sidebar_panels", [])),
+        ),
+        "workflow_packs": raw_manifest.get("workflow_packs", config.get("workflow_packs", ["executive_assistant_pack"])),
+        "kernel_baseline": raw_manifest.get("kernel_baseline", config.get("kernel_baseline", {})),
         "redis_url": config.get("redis_url", ""),
         "email_fixtures": config.get("email_fixtures", []),
         "calendar_fixtures": config.get("calendar_fixtures", []),
