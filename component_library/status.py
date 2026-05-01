@@ -24,6 +24,8 @@ COMPONENT_IMPLEMENTATION_STATUS: Final[dict[str, str]] = {
     "data_analyzer": "production",
     "research_engine": "production",
     "monitor_scanner": "production",
+    "work_intake_router": "production",
+    "task_orchestrator": "production",
     # tools
     "email_tool": "production",
     "calendar_tool": "production",
@@ -49,6 +51,10 @@ COMPONENT_IMPLEMENTATION_STATUS: Final[dict[str, str]] = {
     "adversarial_review": "production",
     "compliance_rules": "production",
     "explainability": "production",
+    "evidence_binder": "production",
+    "policy_authority_engine": "production",
+    "quality_review_engine": "production",
+    "roi_meter": "production",
 }
 
 
