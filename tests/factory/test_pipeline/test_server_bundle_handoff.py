@@ -8,28 +8,87 @@ from zipfile import ZipFile
 
 import pytest
 
+from factory.models.blueprint import SelectedComponent
 from factory.models.build import Build
 from factory.models.deployment import Deployment, DeploymentFormat, DeploymentStatus
+from factory.models.requirements import EmployeeArchetype, RiskTier
 from factory.pipeline.builder.assembler import assemble
 from factory.pipeline.builder.packager import package
 from factory.pipeline.deployer.provisioner import provision
 
 
+ARCHETYPE_CASES = (
+    (
+        "legal_intake",
+        EmployeeArchetype.LEGAL_INTAKE_ASSOCIATE,
+        "legal_intake",
+        "Cartwright Intake Associate",
+        "Legal Intake Associate",
+        ["email", "crm"],
+        RiskTier.HIGH,
+    ),
+    (
+        "executive_assistant",
+        EmployeeArchetype.EXECUTIVE_ASSISTANT,
+        "executive_assistant",
+        "Morgan Chief of Staff",
+        "Executive Assistant",
+        ["email", "calendar"],
+        RiskTier.LOW,
+    ),
+    (
+        "accountant",
+        EmployeeArchetype.ACCOUNTANT,
+        "executive_assistant",
+        "Finley Controller Associate",
+        "Accountant",
+        ["email", "data_analyzer"],
+        RiskTier.MEDIUM,
+    ),
+)
+
+
 @pytest.mark.anyio
-async def test_server_bundle_is_buildable_and_handoff_ready(
+@pytest.mark.parametrize(
+    ("case_id", "employee_type", "workflow_id", "employee_name", "role_title", "required_tools", "risk_tier"),
+    ARCHETYPE_CASES,
+)
+async def test_supported_archetype_server_bundles_are_buildable_and_sovereign_handoff_ready(
+    case_id,
+    employee_type,
+    workflow_id,
+    employee_name,
+    role_title,
+    required_tools,
+    risk_tier,
     sample_requirements,
     sample_blueprint,
     monkeypatch,
     tmp_path,
 ) -> None:
     requirements = sample_requirements.model_copy(
-        update={"deployment_format": "server", "deployment_target": "client_server"}
+        update={
+            "employee_type": employee_type,
+            "name": employee_name,
+            "role_title": role_title,
+            "required_tools": required_tools,
+            "risk_tier": risk_tier,
+            "deployment_format": "server",
+            "deployment_target": "client_server",
+        }
     )
+    components = list(sample_blueprint.components)
+    if case_id == "accountant":
+        components.append(SelectedComponent(category="work", component_id="data_analyzer"))
     blueprint = sample_blueprint.model_copy(
         update={
+            "employee_type": employee_type,
+            "employee_name": employee_name,
+            "workflow_id": workflow_id,
+            "components": components,
             "deployment_spec": sample_blueprint.deployment_spec.model_copy(
                 update={"format": "server", "target": "client_docker_compose"}
-            )
+            ),
         }
     )
     build = Build(requirements_id=requirements.id, org_id=requirements.org_id)
@@ -78,13 +137,27 @@ async def test_server_bundle_is_buildable_and_handoff_ready(
             assert "README.md" in names
             assert "bundle-metadata.json" in names
             metadata = json.loads(archive.read("bundle-metadata.json"))
+            env_example = archive.read(".env.example").decode()
 
         assert metadata["deployment_format"] == "server"
+        assert metadata["employee_type"] == employee_type.value
         assert metadata["runtime_template"] == "server_compose_bundle"
+        assert metadata["runtime_env_file"] == ".env.example"
+        assert metadata["local_runtime_env"] is True
+        assert metadata["requires_forge_secret_broker"] is False
+        assert metadata["forge_secret_broker"] == "none"
         assert metadata["config_path"] == "app/config.yaml"
         assert metadata["compose_file"] == "docker-compose.yml"
+        assert metadata["healthcheck_path"] == "/api/v1/health"
         assert "app/static/index.html" in metadata["included_files"]
+        assert ".env.example" in metadata["included_files"]
         assert packaged.metadata["runtime_template"] == "server_compose_bundle"
+        assert packaged.metadata["deployment_bundles"]["server"]["requires_forge_secret_broker"] is False
+        assert packaged.metadata["deployment_bundles"]["server"]["healthcheck_path"] == "/api/v1/health"
+
+        assert "EMPLOYEE_API_KEY=" in env_example
+        assert "FACTORY_JWT_SECRET" not in env_example
+        assert "INFISICAL" not in env_example
 
         assert provisioned.status == DeploymentStatus.PENDING_CLIENT_ACTION
         assert provisioned.infrastructure["artifact_path"] == str(bundle_path)

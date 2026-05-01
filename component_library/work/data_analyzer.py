@@ -89,6 +89,13 @@ class DataAnalyzer(WorkCapability):
     async def _load_rows(self, request: DataAnalysisRequest) -> list[dict[str, Any]]:
         if request.rows:
             return [dict(row) for row in request.rows]
+        if request.source_csvs:
+            rows: list[dict[str, Any]] = []
+            for source_name, csv_data in sorted(request.source_csvs.items()):
+                reader = csv.DictReader(StringIO(csv_data.strip()))
+                for row in reader:
+                    rows.append({"__source": source_name, **dict(row)})
+            return rows
         if request.csv_data:
             reader = csv.DictReader(StringIO(request.csv_data.strip()))
             return [dict(row) for row in reader]
@@ -138,6 +145,10 @@ class DataAnalyzer(WorkCapability):
             "row_count": len(rows),
             "column_count": len(schema),
         }
+        source_names = sorted({str(row.get("__source", "")) for row in rows if row.get("__source")})
+        if source_names:
+            metrics["sources"] = source_names
+            metrics.update(self._compute_accounting_close_metrics(rows))
         for column in schema:
             if column.inferred_type != "numeric":
                 continue
@@ -155,6 +166,52 @@ class DataAnalyzer(WorkCapability):
                 "sum": round(sum(values), 2),
             }
         return metrics
+
+    def _compute_accounting_close_metrics(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        metrics: dict[str, Any] = {}
+        bank_rows = [row for row in rows if row.get("__source") == "bank_feed"]
+        gl_rows = [row for row in rows if row.get("__source") == "general_ledger"]
+        ap_rows = [row for row in rows if row.get("__source") == "ap_aging"]
+        ar_rows = [row for row in rows if row.get("__source") == "ar_aging"]
+
+        if bank_rows:
+            amounts = [
+                amount
+                for amount in (self._coerce_float(row.get("amount")) for row in bank_rows)
+                if amount is not None
+            ]
+            if amounts:
+                metrics["bank_balance"] = round(amounts[-1], 2)
+
+        cash_row = next((row for row in gl_rows if str(row.get("account", "")).lower() == "cash"), None)
+        if cash_row is not None:
+            gl_cash = self._coerce_float(cash_row.get("balance"))
+            if gl_cash is not None:
+                metrics["gl_cash_balance"] = round(gl_cash, 2)
+
+        if "bank_balance" in metrics and "gl_cash_balance" in metrics:
+            metrics["cash_reconciliation_difference"] = round(
+                metrics["bank_balance"] - metrics["gl_cash_balance"],
+                2,
+            )
+
+        ap_total = self._aging_total(ap_rows)
+        ar_total = self._aging_total(ar_rows)
+        if ap_rows:
+            metrics["ap_overdue_total"] = ap_total
+            metrics["ap_overdue_count"] = float(len(ap_rows))
+        if ar_rows:
+            metrics["ar_overdue_total"] = ar_total
+            metrics["ar_overdue_count"] = float(len(ar_rows))
+        return metrics
+
+    def _aging_total(self, rows: list[dict[str, Any]]) -> float:
+        total = 0.0
+        for row in rows:
+            amount = self._coerce_float(row.get("amount"))
+            if amount is not None:
+                total += amount
+        return round(total, 2)
 
     def _detect_anomalies(
         self,
@@ -200,6 +257,15 @@ class DataAnalyzer(WorkCapability):
         numeric_columns = [column.name for column in schema if column.inferred_type == "numeric"]
         question_suffix = f" The analysis focused on: {request.question.strip()}." if request.question.strip() else ""
         anomaly_text = anomalies[0] if anomalies else "No major anomalies were detected in the numeric columns."
+        if "cash_reconciliation_difference" in metrics:
+            return (
+                f"Month-end close inputs ingested from {', '.join(metrics.get('sources', []))}. "
+                f"Bank balance is ${metrics.get('bank_balance', 0):,.2f} and GL cash is "
+                f"${metrics.get('gl_cash_balance', 0):,.2f}, leaving a cash reconciliation difference of "
+                f"${metrics.get('cash_reconciliation_difference', 0):,.2f}. "
+                f"AP overdue total is ${metrics.get('ap_overdue_total', 0):,.2f}; "
+                f"AR overdue total is ${metrics.get('ar_overdue_total', 0):,.2f}."
+            )
         return (
             f"Analyzed {metrics.get('row_count', 0)} rows across {metrics.get('column_count', 0)} columns. "
             f"Numeric columns: {', '.join(numeric_columns) if numeric_columns else 'none'}. "

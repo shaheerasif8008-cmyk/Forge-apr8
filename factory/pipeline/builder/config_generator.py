@@ -78,8 +78,6 @@ async def generate_config(
         "deployment_format": requirements.deployment_format,
         "auth_required": True,
         "api_auth_token": api_auth_token,
-        "workflow_packs": workflow_packs,
-        "kernel_baseline": kernel_baseline,
         "system_identity": blueprint.workflow_description,
         "people": _as_list(org_context.get("people")),
         "escalation_chain": _as_list(org_context.get("escalation_chain")),

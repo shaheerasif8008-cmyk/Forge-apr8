@@ -1,0 +1,2 @@
+{"event_type":"task_started","task_id":"close-001","hash":"abc"}
+{"event_type":"output_produced","task_id":"close-001","prev_hash":"abc","hash":"def"}

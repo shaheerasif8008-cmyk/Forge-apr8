@@ -1,261 +1,158 @@
+"""Built-in workflow packs for the first general employee kernel slice."""
+
 from __future__ import annotations
 
 from employee_runtime.workflow_packs.base import WorkflowPack, WorkflowPackEvaluationCase
 
 
-BUILTIN_WORKFLOW_PACKS: list[WorkflowPack] = [
+BUILTIN_WORKFLOW_PACKS: tuple[WorkflowPack, ...] = (
     WorkflowPack(
         pack_id="executive_assistant_pack",
         display_name="Executive Assistant",
-        description="Handles executive scheduling, inbox triage, briefings, follow-ups, and approvals.",
-        supported_lanes=[
-            "knowledge_work",
-            "business_process",
-            "hybrid",
-        ],
-        classification_hints=[
-            "executive assistant",
-            "calendar",
-            "inbox",
-            "briefing",
-            "follow up",
-            "meeting",
-        ],
+        description="Scheduling, inbox triage, follow-ups, meeting prep, and briefings.",
+        supported_lanes=["knowledge_work", "business_process", "hybrid"],
+        classification_hints=["schedule", "meeting", "follow up", "follow-up", "briefing", "inbox"],
         required_tools=["email_tool", "calendar_tool", "messaging_tool"],
-        optional_tools=["document_ingestion", "file_storage_tool", "crm_tool"],
+        optional_tools=["crm_tool"],
         output_templates={
-            "knowledge_work": "Prepare a prioritized executive brief with decisions, risks, and owner follow-ups.",
-            "business_process": "Track owner, deadline, dependencies, and next checkpoint.",
-            "hybrid": "Coordinate communication, scheduling, and approvals with clear context and next actions.",
+            "knowledge_work": "Executive brief with summary, decisions, and next actions.",
+            "business_process": "Action log with calendar, message, CRM, and approval updates.",
+            "hybrid": "Brief plus action log.",
         },
-        autonomy_overrides={
-            "external_send": "assisted",
-            "calendar_modify": "assisted",
-            "routine_follow_up": "full",
-        },
-        domain_vocabulary=[
-            "briefing",
-            "agenda",
-            "stakeholder",
-            "action item",
-            "follow-up",
-            "availability",
-        ],
-        onboarding_questions=[
-            "Who does the employee support and what are their preferred communication channels?",
-            "Which calendar and inbox actions can be handled without approval?",
-            "What should be included in the morning briefing?",
-        ],
+        autonomy_overrides={"external_send": "approval_required"},
+        domain_vocabulary=["briefing", "calendar hold", "follow-up", "action item"],
+        onboarding_questions=["Who is the supervisor?", "Which calendar and inbox should I monitor?"],
         evaluation_cases=[
             WorkflowPackEvaluationCase(
-                case_id="ea_morning_brief",
-                input="Prepare tomorrow morning's briefing from today's meetings and open follow-ups.",
-                expected_lane="knowledge_work",
-                required_terms=["decisions", "follow-ups", "priorities"],
-            ),
-            WorkflowPackEvaluationCase(
-                case_id="ea_schedule_meeting",
-                input="Find time next week for a customer renewal review with Finance and Sales.",
+                case_id="ea_schedule_followup",
+                input="Schedule a review with Sarah next week and draft the follow-up.",
                 expected_lane="hybrid",
-                required_terms=["availability", "attendees", "confirmation"],
-            ),
+                required_terms=["schedule", "follow-up"],
+            )
         ],
-        roi_metrics={
-            "default_minutes_saved": 30.0,
-            "follow_up_minutes_saved": 12.0,
-            "briefing_minutes_saved": 20.0,
-        },
+        roi_metrics={"default_minutes_saved": 30.0},
     ),
     WorkflowPack(
         pack_id="operations_coordinator_pack",
         display_name="Operations Coordinator",
-        description="Coordinates cross-functional operational workflows, handoffs, status tracking, and exception escalation.",
-        supported_lanes=[
-            "business_process",
-            "knowledge_work",
-            "hybrid",
-        ],
-        classification_hints=[
-            "operations",
-            "ops",
-            "coordinator",
-            "handoff",
-            "process",
-            "status",
-            "vendor",
-        ],
-        required_tools=["email_tool", "messaging_tool", "custom_api_tool"],
-        optional_tools=["calendar_tool", "crm_tool", "file_storage_tool", "document_ingestion"],
+        description="Task routing, checklist execution, system updates, and exception reporting.",
+        supported_lanes=["business_process", "hybrid"],
+        classification_hints=["checklist", "update record", "route", "status", "exception"],
+        required_tools=["email_tool", "messaging_tool"],
+        optional_tools=["calendar_tool", "crm_tool", "custom_api_tool"],
         output_templates={
-            "business_process": "Document the workflow state, owner, blockers, next action, and escalation path.",
-            "knowledge_work": "Summarize operational metrics, variance, root cause, and recommended correction.",
-            "hybrid": "Send a status update with current state, required input, deadline, owner, and escalation path.",
+            "business_process": "Operations action log with completed steps and exceptions.",
+            "hybrid": "Operations summary plus action log.",
         },
-        autonomy_overrides={
-            "routine_status_update": "full",
-            "vendor_commitment": "assisted",
-            "process_change": "shadow",
-        },
-        domain_vocabulary=[
-            "SLA",
-            "handoff",
-            "blocker",
-            "runbook",
-            "escalation",
-            "throughput",
-            "exception",
-        ],
-        onboarding_questions=[
-            "Which operational workflows should the employee coordinate first?",
-            "What systems hold workflow status and escalation data?",
-            "Which exceptions require human approval before action?",
-        ],
+        autonomy_overrides={"record_update": "autonomous", "external_send": "approval_required"},
+        domain_vocabulary=["SLA", "handoff", "exception", "owner", "status"],
+        onboarding_questions=["Which systems of record can I update?", "Who receives exception reports?"],
         evaluation_cases=[
             WorkflowPackEvaluationCase(
-                case_id="ops_blocker_update",
-                input="A vendor missed the intake SLA and three customer orders are waiting.",
+                case_id="ops_status_update",
+                input="Update the onboarding checklist, flag missing documents, and notify the owner.",
                 expected_lane="business_process",
-                required_terms=["blocker", "owner", "escalation"],
-            ),
-            WorkflowPackEvaluationCase(
-                case_id="ops_status_digest",
-                input="Summarize today's open fulfillment issues and next actions for the team channel.",
-                expected_lane="hybrid",
-                required_terms=["status", "next action", "owner"],
-            ),
+                required_terms=["checklist", "missing documents", "owner"],
+            )
         ],
-        roi_metrics={
-            "default_minutes_saved": 25.0,
-            "status_update_minutes_saved": 15.0,
-            "exception_triage_minutes_saved": 25.0,
-        },
+        roi_metrics={"default_minutes_saved": 25.0},
     ),
     WorkflowPack(
         pack_id="accounting_ops_pack",
         display_name="Accounting Operations",
-        description="Processes accounting operations including invoice intake, reconciliation, approvals, and finance follow-ups.",
-        supported_lanes=[
-            "knowledge_work",
-            "business_process",
-            "hybrid",
-        ],
+        description=(
+            "Month-end close, reconciliation triage, AP/AR aging review, variance explanation, "
+            "statement draft preparation, and approval-boundary enforcement."
+        ),
+        supported_lanes=["knowledge_work", "business_process", "hybrid"],
         classification_hints=[
-            "accounting",
-            "accountant",
-            "finance",
             "invoice",
-            "reconciliation",
-            "payable",
-            "receivable",
+            "ap",
+            "ar",
+            "aging",
+            "month-end",
+            "close",
+            "variance",
+            "reconcile",
+            "accounting",
+            "general ledger",
+            "bank feed",
         ],
-        required_tools=["email_tool", "document_ingestion", "file_storage_tool"],
-        optional_tools=["calendar_tool", "messaging_tool", "custom_api_tool", "crm_tool"],
+        required_tools=["email_tool", "calendar_tool", "file_storage_tool"],
+        optional_tools=["custom_api_tool", "messaging_tool"],
         output_templates={
-            "knowledge_work": "Extract, compare, and explain finance records with source evidence and confidence.",
-            "business_process": "Track accounting workflow stage, missing inputs, owner, and next finance action.",
-            "hybrid": "Prepare finance-safe communication with invoice context, request, deadline, and approval status.",
+            "knowledge_work": (
+                "Finance memo with assumptions, calculations, variance analysis, reconciliation status, "
+                "and review flags."
+            ),
+            "business_process": (
+                "Accounting action log with bank feed exceptions, GL tie-outs, AP/AR aging owners, "
+                "close checklist status, amounts, and approval requests."
+            ),
+            "hybrid": (
+                "Month-end close package with variance analysis, close checklist, statement draft, "
+                "reconciliation action log, and explicit approval boundaries."
+            ),
         },
         autonomy_overrides={
-            "invoice_extraction": "full",
-            "payment_release": "approval_required",
-            "vendor_follow_up": "assisted",
+            "post_journal_entry": "approval_required",
+            "send_external_financial_statement": "approval_required",
+            "file_tax_return": "forbidden",
         },
         domain_vocabulary=[
+            "bank feed",
+            "GL",
+            "AP aging",
+            "AR aging",
             "invoice",
-            "GL code",
+            "variance analysis",
+            "close checklist",
+            "statement draft",
             "reconciliation",
-            "accounts payable",
-            "accounts receivable",
-            "variance",
-            "remittance",
+            "approval boundary",
         ],
         onboarding_questions=[
-            "Which accounting workflows should be automated first?",
-            "What approval thresholds apply to payments and adjustments?",
-            "Where are invoices, ledgers, and vendor records stored?",
+            "Which bank feed, GL, AP aging, and AR aging sources should I reconcile?",
+            "What close checklist and statement draft format should I use?",
+            "Who approves journal entries, external statements, tax filings, and close exceptions?",
         ],
         evaluation_cases=[
             WorkflowPackEvaluationCase(
-                case_id="acct_invoice_extract",
-                input="Review this invoice, extract the payment details, and flag missing purchase order data.",
-                expected_lane="knowledge_work",
-                required_terms=["invoice", "amount", "purchase order"],
-            ),
-            WorkflowPackEvaluationCase(
-                case_id="acct_reconcile_variance",
-                input="Compare the ledger export against bank activity and explain the variance.",
-                expected_lane="knowledge_work",
-                required_terms=["variance", "ledger", "source"],
-            ),
+                case_id="accounting_month_end_close",
+                input=(
+                    "Use the bank feed, GL, AP aging, and AR aging to reconcile cash, explain variances, "
+                    "update the close checklist, draft statements, and flag approval boundaries."
+                ),
+                expected_lane="hybrid",
+                required_terms=["bank feed", "GL", "AP aging", "AR aging", "variance", "approval"],
+            )
         ],
-        roi_metrics={
-            "default_minutes_saved": 50.0,
-            "invoice_processing_minutes_saved": 18.0,
-            "reconciliation_minutes_saved": 30.0,
-        },
+        roi_metrics={"default_minutes_saved": 45.0},
     ),
     WorkflowPack(
         pack_id="legal_intake_pack",
         display_name="Legal Intake",
-        description="Triages legal intake, collects facts, classifies matters, drafts summaries, and routes approvals.",
-        supported_lanes=[
-            "knowledge_work",
-            "business_process",
-            "hybrid",
-        ],
-        classification_hints=[
-            "legal",
-            "law",
-            "intake",
-            "matter",
-            "contract",
-            "compliance",
-            "case",
-        ],
-        required_tools=["email_tool", "document_ingestion", "file_storage_tool"],
-        optional_tools=["calendar_tool", "messaging_tool", "custom_api_tool"],
+        description="Inquiry triage, conflict packet prep, deadline extraction, and attorney escalation.",
+        supported_lanes=["knowledge_work", "business_process", "hybrid"],
+        classification_hints=["intake", "conflict", "matter", "deadline", "attorney", "legal"],
+        required_tools=["email_tool", "calendar_tool"],
+        optional_tools=["file_storage_tool", "document_ingestion"],
         output_templates={
-            "knowledge_work": "Summarize legal materials, obligations, risks, open questions, and cited facts.",
-            "business_process": "Track matter stage, owner, deadline, dependency, and escalation criteria.",
-            "hybrid": "Collect missing legal facts, classify urgency, and route approvals with neutral language.",
+            "knowledge_work": "Intake brief with facts, risks, deadlines, and attorney questions.",
+            "business_process": "Intake action log with conflict, document, calendar, and escalation steps.",
+            "hybrid": "Intake brief plus action log.",
         },
-        autonomy_overrides={
-            "fact_collection": "full",
-            "legal_recommendation": "assisted",
-            "external_legal_commitment": "approval_required",
-        },
-        domain_vocabulary=[
-            "matter",
-            "jurisdiction",
-            "counterparty",
-            "clause",
-            "obligation",
-            "risk tier",
-            "privilege",
-        ],
-        onboarding_questions=[
-            "What matter types should the employee classify during intake?",
-            "Which legal actions require attorney review before response?",
-            "What jurisdictions, templates, and playbooks should be used?",
-        ],
+        autonomy_overrides={"legal_advice": "forbidden", "case_acceptance": "approval_required"},
+        domain_vocabulary=["matter", "conflict", "deadline", "retainer", "intake"],
+        onboarding_questions=["Who reviews new matters?", "What conflict sources should I check?"],
         evaluation_cases=[
             WorkflowPackEvaluationCase(
-                case_id="legal_new_matter",
-                input="A customer sent an indemnity redline and needs a response by Friday.",
+                case_id="legal_intake_packet",
+                input="Prepare an intake packet and flag conflict-check needs for this new inquiry.",
                 expected_lane="hybrid",
-                required_terms=["matter", "deadline", "risk"],
-            ),
-            WorkflowPackEvaluationCase(
-                case_id="legal_contract_summary",
-                input="Summarize the key obligations in this vendor agreement for business review.",
-                expected_lane="knowledge_work",
-                required_terms=["obligations", "risks", "open questions"],
-            ),
+                required_terms=["intake", "conflict"],
+            )
         ],
-        roi_metrics={
-            "default_minutes_saved": 40.0,
-            "intake_triage_minutes_saved": 22.0,
-            "contract_summary_minutes_saved": 35.0,
-        },
+        roi_metrics={"default_minutes_saved": 40.0},
     ),
-]
+)

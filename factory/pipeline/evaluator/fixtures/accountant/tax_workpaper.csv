@@ -1,0 +1,5 @@
+item,amount,treatment
+Book income,500000,start
+Municipal bond interest,20000,permanent subtraction
+EPA fines,5000,permanent addback
+Excess tax depreciation,30000,temporary subtraction

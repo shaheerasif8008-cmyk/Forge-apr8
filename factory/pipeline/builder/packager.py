@@ -72,6 +72,7 @@ async def package(build: Build) -> Build:
             )
             return build
         installers = await _store_desktop_installers(build, frontend_dir / "dist")
+        _record_desktop_packaging_metadata(build, installers)
         if not installers:
             build.logs.append(
                 BuildLog(
@@ -246,6 +247,27 @@ async def _store_desktop_installers(build: Build, dist_dir: Path) -> list[str]:
     return stored_locations
 
 
+def _record_desktop_packaging_metadata(build: Build, installers: list[str]) -> None:
+    skipped_heavy_build = environ.get("FORGE_SKIP_HEAVY_BUILDS") == "1"
+    unsigned = not (environ.get("CSC_LINK") and environ.get("CSC_KEY_PASSWORD"))
+    if skipped_heavy_build and not installers:
+        status = "skipped_no_artifact"
+    elif installers and unsigned:
+        status = "unsigned_installer"
+    elif installers:
+        status = "signed_installer"
+    else:
+        status = "no_artifact"
+    build.metadata["desktop_packaging"] = {
+        "requested": True,
+        "skipped_heavy_build": skipped_heavy_build,
+        "unsigned": unsigned,
+        "artifact_count": len(installers),
+        "artifact_paths": installers,
+        "status": status,
+    }
+
+
 def _runtime_template(build: Build) -> str:
     configured = str(build.metadata.get("runtime_template", "")).strip()
     if configured:
@@ -276,8 +298,9 @@ async def _build_server_bundle(build: Build, build_dir: Path, frontend_dir: Path
     )
     root_env_path = bundle_root / ".env.example"
     copy2(build_dir / ".env.example", root_env_path)
+    _ensure_server_bundle_env_contract(root_env_path)
 
-    metadata = _server_bundle_metadata(build)
+    metadata = _server_bundle_metadata(build, build_dir)
     (bundle_root / "README.md").write_text(_server_bundle_readme(metadata))
     metadata["included_files"] = sorted(
         path.relative_to(bundle_root).as_posix()
@@ -299,8 +322,27 @@ async def _build_server_bundle(build: Build, build_dir: Path, frontend_dir: Path
         "bundle_root": bundle_root.as_posix(),
         "compose_file": metadata["compose_file"],
         "healthcheck_path": metadata["healthcheck_path"],
+        "requires_forge_secret_broker": metadata["requires_forge_secret_broker"],
     }
     return stored_location
+
+
+def _ensure_server_bundle_env_contract(env_path: Path) -> None:
+    values = env_path.read_text().splitlines()
+    present_keys = {
+        line.split("=", 1)[0].strip()
+        for line in values
+        if line.strip() and not line.strip().startswith("#") and "=" in line
+    }
+    if "EMPLOYEE_API_KEY" not in present_keys:
+        values.append("EMPLOYEE_API_KEY=")
+    forbidden_prefixes = ("FACTORY_", "INFISICAL")
+    filtered = [
+        line
+        for line in values
+        if not any(line.strip().startswith(prefix) for prefix in forbidden_prefixes)
+    ]
+    env_path.write_text("\n".join(filtered).rstrip() + "\n")
 
 
 def _copy_runtime_context(build_dir: Path, frontend_dir: Path, app_dir: Path) -> None:
@@ -351,17 +393,24 @@ def _ts_config_value(config_text: str, key: str) -> str:
     return match.group(1) if match else ""
 
 
-def _server_bundle_metadata(build: Build) -> dict[str, object]:
+def _server_bundle_metadata(build: Build, build_dir: Path) -> dict[str, object]:
     employee_name = str(build.metadata.get("employee_name", "Forge Employee"))
     employee_id = str(build.metadata.get("employee_id", build.id))
     runtime_template = _runtime_template(build)
+    manifest = _read_runtime_manifest(build_dir)
+    employee_type = str(manifest.get("employee_type") or build.metadata.get("employee_type") or "unknown")
     return {
         "bundle_version": 1,
         "build_id": str(build.id),
         "employee_id": employee_id,
         "employee_name": employee_name,
+        "employee_type": employee_type,
         "deployment_format": "server",
         "runtime_template": runtime_template,
+        "runtime_env_file": ".env.example",
+        "local_runtime_env": True,
+        "requires_forge_secret_broker": False,
+        "forge_secret_broker": "none",
         "bundle_root": ".",
         "app_dir": "app",
         "compose_file": "docker-compose.yml",
@@ -377,6 +426,20 @@ def _server_bundle_metadata(build: Build) -> dict[str, object]:
         ],
         "included_files": [],
     }
+
+
+def _read_runtime_manifest(build_dir: Path) -> dict[str, object]:
+    for path in (build_dir / "package_manifest.json", build_dir / "config.yaml"):
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data.get("manifest"), dict):
+            return data["manifest"]
+        return data
+    return {}
 
 
 def _server_bundle_readme(metadata: dict[str, object]) -> str:

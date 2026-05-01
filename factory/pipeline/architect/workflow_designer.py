@@ -96,6 +96,36 @@ def _design_fallback(
                 "terminals": ["log_completion"],
             }
         )
+    if requirements.employee_type == EmployeeArchetype.ACCOUNTANT:
+        return WorkflowGraphSpec.model_validate(
+            {
+                "nodes": [
+                    {"node_id": "sanitize_input", "component_id": "input_protection", "config": {"adapter": "sanitize_input"}},
+                    {"node_id": "plan_close_work", "component_id": "workflow_executor", "config": {"adapter": "accounting_close_plan"}},
+                    {"node_id": "reconcile_bank_feed", "component_id": "data_analyzer", "config": {"adapter": "bank_feed_gl_reconciliation"}},
+                    {"node_id": "review_ap_ar_aging", "component_id": "document_analyzer", "config": {"adapter": "ap_ar_aging_review"}},
+                    {"node_id": "explain_variances", "component_id": "data_analyzer", "config": {"adapter": "variance_analysis"}},
+                    {"node_id": "update_close_checklist", "component_id": "workflow_executor", "config": {"adapter": "close_checklist"}},
+                    {"node_id": "draft_statements", "component_id": "draft_generator", "config": {"adapter": "statement_draft"}},
+                    {"node_id": "request_finance_approval", "component_id": "approval_manager", "config": {"adapter": "finance_approval_boundary"}},
+                    {"node_id": "deliver", "custom_spec_id": "builtin_deliver", "config": {"adapter": "builtin_deliver"}},
+                    {"node_id": "log_completion", "custom_spec_id": "builtin_log_completion", "config": {"adapter": "builtin_log_completion"}},
+                ],
+                "edges": [
+                    {"from_node": "sanitize_input", "to_node": "plan_close_work"},
+                    {"from_node": "plan_close_work", "to_node": "reconcile_bank_feed"},
+                    {"from_node": "reconcile_bank_feed", "to_node": "review_ap_ar_aging"},
+                    {"from_node": "review_ap_ar_aging", "to_node": "explain_variances"},
+                    {"from_node": "explain_variances", "to_node": "update_close_checklist"},
+                    {"from_node": "update_close_checklist", "to_node": "draft_statements"},
+                    {"from_node": "draft_statements", "to_node": "request_finance_approval"},
+                    {"from_node": "request_finance_approval", "to_node": "deliver"},
+                    {"from_node": "deliver", "to_node": "log_completion"},
+                ],
+                "entry": "sanitize_input",
+                "terminals": ["log_completion"],
+            }
+        )
 
     nodes = [
         {"node_id": "sanitize_input", "component_id": "input_protection", "config": {"adapter": "sanitize_input"}},

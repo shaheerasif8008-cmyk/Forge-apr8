@@ -1,3 +1,5 @@
+"""Workflow pack schemas consumed by generated employee runtimes."""
+
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
@@ -13,8 +15,8 @@ class WorkflowPackEvaluationCase(BaseModel):
 class WorkflowPack(BaseModel):
     pack_id: str
     display_name: str
-    version: str = "1.0.0"
     description: str
+    version: str = "1.0.0"
     supported_lanes: list[str]
     classification_hints: list[str] = Field(default_factory=list)
     required_tools: list[str] = Field(default_factory=list)

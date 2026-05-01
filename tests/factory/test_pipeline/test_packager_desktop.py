@@ -54,6 +54,11 @@ async def test_packager_builds_desktop_installers_when_requested(
 
     assert any(command[:2] == ["npx", "electron-builder"] for command in calls)
     assert any(artifact.artifact_type == "desktop_installer" for artifact in result.artifacts)
+    assert result.metadata["desktop_packaging"]["requested"] is True
+    assert result.metadata["desktop_packaging"]["skipped_heavy_build"] is False
+    assert result.metadata["desktop_packaging"]["unsigned"] is True
+    assert result.metadata["desktop_packaging"]["artifact_count"] == 1
+    assert result.metadata["desktop_packaging"]["status"] == "unsigned_installer"
 
 
 @pytest.mark.anyio
@@ -96,3 +101,11 @@ async def test_packager_skip_heavy_builds_does_not_create_placeholder_installers
     assert not any(artifact.artifact_type == "desktop_installer" for artifact in result.artifacts)
     assert not any(path.suffix == ".AppImage" and path.read_text() == "placeholder desktop installer" for path in frontend_dir.rglob("*"))
     assert any(log.message == "Desktop build completed without installer artifacts" for log in result.logs)
+    assert result.metadata["desktop_packaging"] == {
+        "requested": True,
+        "skipped_heavy_build": True,
+        "unsigned": True,
+        "artifact_count": 0,
+        "artifact_paths": [],
+        "status": "skipped_no_artifact",
+    }

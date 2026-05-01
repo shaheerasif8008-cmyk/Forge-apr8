@@ -1,5 +1,5 @@
 {
-  "employee_type": "executive_assistant",
+  "employee_type": "accountant",
   "name": "Finley",
   "role_title": "AI Accountant",
   "role_summary": "Owns accounting advisory, reconciliations, audit support, tax compliance triage, and professional ethics escalation for the finance team.",
@@ -23,7 +23,11 @@
   ],
   "required_data_sources": [
     "general_ledger",
+    "bank_feed",
     "bank_statements",
+    "ap_aging",
+    "ar_aging",
+    "close_checklist",
     "tax_workpapers"
   ],
   "communication_channels": [

@@ -6,7 +6,7 @@ from typing import Any
 
 from component_library.interfaces import ComponentHealth, ToolIntegration
 from component_library.registry import register
-from component_library.tools.adapter_runtime import InMemoryProviderAdapter
+from component_library.tools.adapter_runtime import build_provider_adapter, is_live_adapter, is_provider_fallback
 
 
 @register("email_tool")
@@ -14,6 +14,7 @@ class EmailTool(ToolIntegration):
     config_schema = {
         "provider": {"type": "str", "required": False, "description": "Email provider: gmail | outlook | fixture.", "default": "fixture"},
         "composio_api_key": {"type": "str", "required": False, "description": "Composio API key for Gmail/Outlook integration.", "default": ""},
+        "strict_provider": {"type": "bool", "required": False, "description": "Fail initialization if a live provider lacks credentials.", "default": False},
         "tenant_id": {"type": "str", "required": False, "description": "Tenant scoping for email isolation.", "default": "default-tenant"},
         "fixtures": {"type": "list", "required": False, "description": "Fixture inbox messages for dev/test mode.", "default": []},
     }
@@ -21,9 +22,10 @@ class EmailTool(ToolIntegration):
     version = "1.0.0"
 
     async def initialize(self, config: dict[str, Any]) -> None:
-        self._provider = str(config.get("provider", "fixture"))
-        self._adapter = InMemoryProviderAdapter(
+        self._provider = str(config.get("provider", "fixture")).strip().lower() or "fixture"
+        self._adapter = build_provider_adapter(
             self._provider,
+            config,
             initial_state={"fixtures": list(config.get("fixtures", []))},
         )
         self._sent_messages: list[dict[str, Any]] = []
@@ -32,14 +34,21 @@ class EmailTool(ToolIntegration):
 
     async def health_check(self) -> ComponentHealth:
         return ComponentHealth(
-            healthy=True,
-            detail=f"provider={self._provider}; status={self._adapter.connection_status}",
+            healthy=not is_provider_fallback(self._adapter),
+            detail=(
+                f"provider={self._provider}; mode={self._adapter.adapter_mode}; "
+                f"status={self._adapter.connection_status}"
+            ),
         )
 
     def get_test_suite(self) -> list[str]:
         return ["tests/components/tools/test_email_tool.py"]
 
     async def invoke(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+        if is_live_adapter(self._adapter) and action not in {"provider_status", "history"}:
+            result = await self._adapter.invoke(action, params)
+            self._history.append({"action": action, "payload": result})
+            return result
         if action == "send":
             message = {
                 "id": str(len(self._sent_messages) + 1),
