@@ -9,6 +9,7 @@ from factory.models.blueprint import EmployeeBlueprint
 from factory.models.requirements import EmployeeRequirements
 from factory.pipeline.builder.manifest_generator import build_package_manifest
 from factory.config import get_settings
+from employee_runtime.workflow_packs import select_pack_ids
 
 
 def _as_list(value: object) -> list[object]:
@@ -40,6 +41,15 @@ async def generate_config(
     )
 
     config: dict[str, Any] = manifest.model_dump(mode="json")
+    workflow_packs = select_pack_ids(
+        requirements.role_title or requirements.name,
+        list(requirements.required_tools),
+    )
+    kernel_baseline = {
+        "version": "1.0.0",
+        "required_lanes": ["knowledge_work", "business_process", "hybrid"],
+        "certification_required": True,
+    }
     api_auth_token = secrets.token_urlsafe(32)
     config.update({
         "employee_id": str(blueprint.id),
@@ -57,6 +67,8 @@ async def generate_config(
         "communication_channels": requirements.communication_channels,
         "supervisor_email": requirements.supervisor_email,
         "deployment_format": requirements.deployment_format,
+        "workflow_packs": workflow_packs,
+        "kernel_baseline": kernel_baseline,
         "auth_required": True,
         "api_auth_token": api_auth_token,
         "system_identity": blueprint.workflow_description,
@@ -66,7 +78,11 @@ async def generate_config(
         "practice_areas": practice_areas,
         "default_attorney": org_context.get("default_attorney", "Forge Review"),
         "deliberation_council": _deliberation_config(blueprint),
-        "manifest": manifest.model_dump(mode="json"),
+        "manifest": {
+            **manifest.model_dump(mode="json"),
+            "workflow_packs": workflow_packs,
+            "kernel_baseline": kernel_baseline,
+        },
     })
     return config
 
