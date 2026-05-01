@@ -40,6 +40,8 @@ async def test_assembler_creates_build_directory(sample_requirements, sample_blu
         assert config["workflow"] == "legal_intake"
         assert config["kernel_baseline"]["version"] == "1.0.0"
         assert config["kernel_baseline"]["required_lanes"] == ["knowledge_work", "business_process", "hybrid"]
+        assert config["kernel_baseline"]["tool_action_boundary"] == "tool_broker"
+        assert config["kernel_baseline"]["sovereign_export_required"] is True
         assert config["workflow_packs"]
         assert config["manifest"]["kernel_baseline"] == config["kernel_baseline"]
         assert config["manifest"]["workflow_packs"] == config["workflow_packs"]

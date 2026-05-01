@@ -151,6 +151,7 @@ async def test_evaluator_routes_accountant_builds_to_accountant_fixture_suite(sa
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.stop_container", fake_stop)
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.wait_for_health", fake_wait)
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.run_security_tests", fake_suite)
+    monkeypatch.setattr("factory.pipeline.evaluator.test_runner.run_baseline_tests", fake_suite)
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.run_behavioral_tests", fake_suite)
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.run_hallucination_tests", fake_suite)
     monkeypatch.setattr("factory.pipeline.evaluator.test_runner.run_accountant_tests", fake_accountant_suite)

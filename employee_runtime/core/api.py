@@ -35,6 +35,7 @@ from employee_runtime.core.auth import (
     authorize_websocket,
     runtime_auth_config_from_dict,
 )
+from employee_runtime.core.kernel import GeneralEmployeeKernel, estimate_roi
 from employee_runtime.core.conversation_repository import (
     ConversationRepository,
     InMemoryConversationRepository,
@@ -51,6 +52,7 @@ from employee_runtime.core.tool_broker import ToolBroker
 from employee_runtime.modules.behavior_manager import BehaviorManager
 from employee_runtime.modules.pulse_engine import DailyLoopRequest, PulseEngine
 from employee_runtime.shared.orm import KnowledgeChunkRow
+from employee_runtime.workflow_packs import get_workflow_pack
 
 
 OPTIONAL_COMPONENT_MODULES = (
@@ -181,6 +183,7 @@ class EmployeeRuntimeService:
         self.config = _normalize_runtime_config(employee_id, config)
         self.components: dict[str, Any] = {}
         self.engine: EmployeeEngine | None = None
+        self.kernel: GeneralEmployeeKernel | None = None
         self.tool_broker: ToolBroker | None = None
         self.pulse_engine: PulseEngine | None = None
         self.behavior_manager: BehaviorManager | None = None
@@ -243,6 +246,13 @@ class EmployeeRuntimeService:
                 "org_id": self.config["org_id"],
                 "workflow_graph": self.config.get("workflow_graph", {}),
             },
+        )
+        self.kernel = GeneralEmployeeKernel(
+            employee_id=self.employee_id,
+            org_id=str(self.config["org_id"]),
+            packs=self._workflow_packs(),
+            components=self.components,
+            tool_broker=self.tool_broker,
         )
         self.behavior_manager = BehaviorManager(
             operational_memory=self.components["operational_memory"],
@@ -395,6 +405,13 @@ class EmployeeRuntimeService:
     def _default_conversation_id(self) -> str:
         return self.config.get("default_conversation_id", "default")
 
+    def _workflow_packs(self) -> list[Any]:
+        pack_ids = self.config.get("workflow_packs", ["executive_assistant_pack"])
+        packs = []
+        for pack_id in pack_ids:
+            packs.append(get_workflow_pack(str(pack_id)))
+        return packs
+
     async def ensure_conversation(self, conversation_id: str = "") -> str:
         conv_id = conversation_id or self._default_conversation_id()
         if self.conversation_repository is None:
@@ -484,12 +501,23 @@ class EmployeeRuntimeService:
     async def submit_task(self, request: TaskRequest) -> dict[str, Any]:
         if self.engine is None:
             raise RuntimeError("Employee runtime service is not initialized.")
+        if self.kernel is None:
+            raise RuntimeError("Employee kernel is not initialized.")
         if self.task_repository is None:
             raise RuntimeError("Task repository is not initialized.")
 
         conv_id = await self.ensure_conversation(request.conversation_id)
         task_id = request.task_id or str(uuid4())
         input_type = str(request.context.get("input_type", "chat"))
+        kernel_result = await self.kernel.execute_task(
+            request.input,
+            input_type=input_type,
+            request_context=dict(request.context),
+            conversation_id=conv_id,
+            task_id=task_id,
+        )
+        kernel_context = {"kernel": kernel_result.get("workflow_output", {}).get("kernel", {})}
+        enriched_context = {**dict(request.context), **kernel_context}
         await self.task_repository.create_task(
             task_id=task_id,
             employee_id=self.employee_id,
@@ -497,9 +525,9 @@ class EmployeeRuntimeService:
             conversation_id=conv_id,
             input_text=request.input,
             input_type=input_type,
-            input_metadata=dict(request.context),
+            input_metadata=enriched_context,
         )
-        await self.add_message(conv_id, "user", request.input, "text", dict(request.context))
+        await self.add_message(conv_id, "user", request.input, "text", enriched_context)
         await self.task_repository.update_task(
             task_id,
             self.employee_id,
@@ -522,7 +550,7 @@ class EmployeeRuntimeService:
             result = await self.engine.process_task(
                 request.input,
                 input_type=input_type,
-                metadata=request.context,
+                metadata=enriched_context,
                 conversation_id=conv_id,
                 task_id=task_id,
             )
@@ -548,6 +576,8 @@ class EmployeeRuntimeService:
         final_status = "awaiting_approval" if result.get("requires_human_approval") else "completed"
         summary = self._result_summary(result)
         card = self._result_card(result)
+        workflow_output = dict(result.get("workflow_output", {}))
+        workflow_output["kernel"] = dict(kernel_context["kernel"])
         persisted = await self.task_repository.update_task(
             task_id,
             self.employee_id,
@@ -555,7 +585,7 @@ class EmployeeRuntimeService:
                 "status": final_status,
                 "response_summary": summary,
                 "result_card": card,
-                "workflow_output": dict(result.get("workflow_output", {})),
+                "workflow_output": workflow_output,
                 "state": dict(result),
                 "requires_human_approval": bool(result.get("requires_human_approval", False)),
                 "completed_at": datetime.now(UTC) if final_status == "completed" else None,
@@ -1202,19 +1232,30 @@ class EmployeeRuntimeService:
         ]
         outputs = [event for event in activity if event["event_type"] == "output_produced"]
         approvals = [event for event in activity if event["event_type"] == "approval_decided"]
+        approval_requests = [event for event in activity if event["event_type"] == "approval_requested"]
         confidence_values = [
             event["details"].get("confidence", 0.0)
             for event in outputs
             if isinstance(event.get("details"), dict) and "confidence" in event["details"]
         ]
+        task_counts = await self.task_repository.task_counts(self.employee_id) if self.task_repository is not None else {}
+        completed_tasks = max(len(completed), int(task_counts.get("completed", 0) or 0))
+        corrections = await self.list_corrections()
+        roi = estimate_roi(
+            self._workflow_packs(),
+            completed_tasks=completed_tasks,
+            escalations=len(approval_requests),
+            rework_events=len(corrections),
+        )
         return {
-            "tasks_total": len(completed),
+            "tasks_total": completed_tasks,
             "avg_confidence": round(sum(confidence_values) / len(confidence_values), 2) if confidence_values else 0.0,
             "approval_mix": {
                 decision: len([event for event in approvals if event["details"].get("decision") == decision])
                 for decision in ("approve", "decline", "modify")
             },
             "avg_duration_seconds": 0.0,
+            "roi": roi,
         }
 
     async def metrics_dashboard(self) -> dict[str, Any]:
@@ -1291,6 +1332,8 @@ class EmployeeRuntimeService:
             "badge": self.config["ui"].get("app_badge", ""),
             "capabilities": self.config["ui"].get("capabilities", []),
             "deployment_format": self.config["deployment_format"],
+            "workflow_packs": list(self.config.get("workflow_packs", [])),
+            "kernel_baseline": dict(self.config.get("kernel_baseline", _default_kernel_baseline())),
         }
 
     async def get_reasoning_records(self, task_id: str) -> list[dict[str, Any]]:
@@ -1853,9 +1896,21 @@ def _normalize_runtime_config(employee_id: str, config: dict[str, Any]) -> dict[
         "static_dir": config.get("static_dir", raw_manifest.get("static_dir", "")),
         "auth_required": config.get("auth_required", raw_manifest.get("auth_required", False)),
         "api_auth_token": config.get("api_auth_token", raw_manifest.get("api_auth_token", "")),
+        "workflow_packs": list(raw_manifest.get("workflow_packs", config.get("workflow_packs", ["executive_assistant_pack"]))),
+        "kernel_baseline": dict(raw_manifest.get("kernel_baseline", config.get("kernel_baseline", _default_kernel_baseline()))),
         "session_factory": config.get("session_factory"),
         "conversation_repository": config.get("conversation_repository"),
         "task_repository": config.get("task_repository"),
+    }
+
+
+def _default_kernel_baseline() -> dict[str, Any]:
+    return {
+        "version": "1.0.0",
+        "required_lanes": ["knowledge_work", "business_process", "hybrid"],
+        "certification_required": True,
+        "tool_action_boundary": "tool_broker",
+        "sovereign_export_required": True,
     }
 
 

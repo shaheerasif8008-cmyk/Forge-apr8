@@ -39,8 +39,6 @@ async def generate_config(
         build_dir=build_dir,
         generated_files=generated_files,
     )
-
-    config: dict[str, Any] = manifest.model_dump(mode="json")
     workflow_packs = select_pack_ids(
         requirements.role_title or requirements.name,
         list(requirements.required_tools),
@@ -49,7 +47,18 @@ async def generate_config(
         "version": "1.0.0",
         "required_lanes": ["knowledge_work", "business_process", "hybrid"],
         "certification_required": True,
+        "tool_action_boundary": "tool_broker",
+        "sovereign_export_required": True,
     }
+    manifest_payload = manifest.model_dump(mode="json")
+    manifest_payload.update(
+        {
+            "workflow_packs": workflow_packs,
+            "kernel_baseline": kernel_baseline,
+        }
+    )
+
+    config: dict[str, Any] = dict(manifest_payload)
     api_auth_token = secrets.token_urlsafe(32)
     config.update({
         "employee_id": str(blueprint.id),
@@ -67,8 +76,6 @@ async def generate_config(
         "communication_channels": requirements.communication_channels,
         "supervisor_email": requirements.supervisor_email,
         "deployment_format": requirements.deployment_format,
-        "workflow_packs": workflow_packs,
-        "kernel_baseline": kernel_baseline,
         "auth_required": True,
         "api_auth_token": api_auth_token,
         "system_identity": blueprint.workflow_description,
@@ -78,11 +85,7 @@ async def generate_config(
         "practice_areas": practice_areas,
         "default_attorney": org_context.get("default_attorney", "Forge Review"),
         "deliberation_council": _deliberation_config(blueprint),
-        "manifest": {
-            **manifest.model_dump(mode="json"),
-            "workflow_packs": workflow_packs,
-            "kernel_baseline": kernel_baseline,
-        },
+        "manifest": manifest_payload,
     })
     return config
 
