@@ -168,6 +168,18 @@ def _validate_kernel_task_contract(case: dict[str, Any], kernel: Any, failures: 
     if isinstance(classification, dict) and float(classification.get("confidence", 1.0) or 0.0) < 0.7:
         if "low_confidence_clarification" not in plan.get("approval_points", []):
             failures.append(f"{case['id']}: low-confidence plan did not request clarification")
+    execution = kernel.get("execution", {})
+    if not isinstance(execution, dict) or not execution:
+        failures.append(f"{case['id']}: missing kernel execution result")
+        return
+    if execution.get("lane_handler") != case["expected_lane"]:
+        failures.append(f"{case['id']}: kernel execution did not run {case['expected_lane']} lane")
+    if not execution.get("assembled_context"):
+        failures.append(f"{case['id']}: kernel execution missing assembled context")
+    if not execution.get("context_source"):
+        failures.append(f"{case['id']}: kernel execution missing context source")
+    if case["expected_lane"] in {"business_process", "hybrid"} and not execution.get("tool_results"):
+        failures.append(f"{case['id']}: kernel execution missing tool results")
 
 
 def _validate_activity_contract(activity: Any, failures: list[str]) -> None:

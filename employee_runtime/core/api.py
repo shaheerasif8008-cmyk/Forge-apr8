@@ -35,7 +35,7 @@ from employee_runtime.core.auth import (
     authorize_websocket,
     runtime_auth_config_from_dict,
 )
-from employee_runtime.core.kernel import classify_task, create_task_plan, estimate_roi, task_plan_to_context
+from employee_runtime.core.kernel import GeneralEmployeeKernel, estimate_roi
 from employee_runtime.core.conversation_repository import (
     ConversationRepository,
     InMemoryConversationRepository,
@@ -176,6 +176,7 @@ class EmployeeRuntimeService:
         self.config = _normalize_runtime_config(employee_id, config)
         self.components: dict[str, Any] = {}
         self.engine: EmployeeEngine | None = None
+        self.kernel: GeneralEmployeeKernel | None = None
         self.tool_broker: ToolBroker | None = None
         self.pulse_engine: PulseEngine | None = None
         self.behavior_manager: BehaviorManager | None = None
@@ -238,6 +239,13 @@ class EmployeeRuntimeService:
                 "org_id": self.config["org_id"],
                 "workflow_graph": self.config.get("workflow_graph", {}),
             },
+        )
+        self.kernel = GeneralEmployeeKernel(
+            employee_id=self.employee_id,
+            org_id=str(self.config["org_id"]),
+            packs=self._workflow_packs(),
+            components=self.components,
+            tool_broker=self.tool_broker,
         )
         self.behavior_manager = BehaviorManager(
             operational_memory=self.components["operational_memory"],
@@ -486,16 +494,22 @@ class EmployeeRuntimeService:
     async def submit_task(self, request: TaskRequest) -> dict[str, Any]:
         if self.engine is None:
             raise RuntimeError("Employee runtime service is not initialized.")
+        if self.kernel is None:
+            raise RuntimeError("Employee kernel is not initialized.")
         if self.task_repository is None:
             raise RuntimeError("Task repository is not initialized.")
 
         conv_id = await self.ensure_conversation(request.conversation_id)
         task_id = request.task_id or str(uuid4())
         input_type = str(request.context.get("input_type", "chat"))
-        packs = self._workflow_packs()
-        classification = classify_task(request.input, packs)
-        plan = create_task_plan(task_input=request.input, classification=classification, packs=packs)
-        kernel_context = task_plan_to_context(plan)
+        kernel_result = await self.kernel.execute_task(
+            request.input,
+            input_type=input_type,
+            request_context=dict(request.context),
+            conversation_id=conv_id,
+            task_id=task_id,
+        )
+        kernel_context = {"kernel": kernel_result.get("workflow_output", {}).get("kernel", {})}
         enriched_context = {**dict(request.context), **kernel_context}
         await self.task_repository.create_task(
             task_id=task_id,
@@ -556,10 +570,7 @@ class EmployeeRuntimeService:
         summary = self._result_summary(result)
         card = self._result_card(result)
         workflow_output = dict(result.get("workflow_output", {}))
-        workflow_output["kernel"] = {
-            **kernel_context["kernel"],
-            "classification": classification.model_dump(mode="json"),
-        }
+        workflow_output["kernel"] = dict(kernel_context["kernel"])
         persisted = await self.task_repository.update_task(
             task_id,
             self.employee_id,

@@ -4,7 +4,13 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from employee_runtime.core.api import create_employee_app
-from employee_runtime.core.kernel import classify_task, create_task_plan, estimate_roi, task_plan_to_context
+from employee_runtime.core.kernel import (
+    GeneralEmployeeKernel,
+    classify_task,
+    create_task_plan,
+    estimate_roi,
+    task_plan_to_context,
+)
 from employee_runtime.workflow_packs import get_workflow_pack
 
 
@@ -66,6 +72,106 @@ def test_estimate_roi_uses_pack_minutes_saved() -> None:
     assert roi["estimated_minutes_saved"] == 80.0
     assert roi["completed_tasks"] == 2
     assert roi["escalations"] == 1
+
+
+class FakeContextAssembler:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def assemble(
+        self,
+        task_input: str,
+        employee_id: str,
+        org_id: str,
+        conversation_id: str,
+        token_budget: int = 8000,
+    ) -> str:
+        self.calls.append(
+            {
+                "task_input": task_input,
+                "employee_id": employee_id,
+                "org_id": org_id,
+                "conversation_id": conversation_id,
+                "token_budget": token_budget,
+            }
+        )
+        return "ORG CONTEXT\nSupervisor: Riley\n\nRECENT CONVERSATION\nuser: previous task"
+
+
+class FakeToolBroker:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def execute(self, tool_id: str, action: str, **params: object) -> object:
+        self.calls.append({"tool_id": tool_id, "action": action, "params": params})
+        return type(
+            "Result",
+            (),
+            {
+                "success": True,
+                "data": {
+                    "id": "tool-result-1",
+                    "tool_id": tool_id,
+                    "action": action,
+                },
+            },
+        )()
+
+
+@pytest.mark.anyio
+async def test_general_employee_kernel_runs_knowledge_lane_with_assembled_context() -> None:
+    assembler = FakeContextAssembler()
+    kernel = GeneralEmployeeKernel(
+        employee_id="kernel-avery",
+        org_id="org-1",
+        packs=[get_workflow_pack("executive_assistant_pack")],
+        components={"context_assembler": assembler},
+    )
+
+    result = await kernel.execute_task(
+        "Prepare a concise investor update from these notes.",
+        input_type="chat",
+        request_context={},
+        conversation_id="conv-1",
+        task_id="task-1",
+    )
+
+    execution = result["workflow_output"]["kernel"]["execution"]
+    assert result["workflow_output"]["kernel"]["task_lane"] == "knowledge_work"
+    assert execution["lane_handler"] == "knowledge_work"
+    assert execution["context_source"] == "context_assembler"
+    assert "ORG CONTEXT" in execution["assembled_context"]
+    assert result["result_card"]["sections"]
+    assert result["requires_human_approval"] is False
+    assert assembler.calls[0]["conversation_id"] == "conv-1"
+
+
+@pytest.mark.anyio
+async def test_general_employee_kernel_runs_business_process_lane_through_tool_broker() -> None:
+    broker = FakeToolBroker()
+    kernel = GeneralEmployeeKernel(
+        employee_id="kernel-avery",
+        org_id="org-1",
+        packs=[get_workflow_pack("operations_coordinator_pack")],
+        components={"context_assembler": FakeContextAssembler()},
+        tool_broker=broker,
+    )
+
+    result = await kernel.execute_task(
+        "Update the checklist, route approval, and notify the account owner.",
+        input_type="chat",
+        request_context={},
+        conversation_id="conv-1",
+        task_id="task-2",
+    )
+
+    execution = result["workflow_output"]["kernel"]["execution"]
+    assert result["workflow_output"]["kernel"]["task_lane"] == "business_process"
+    assert execution["lane_handler"] == "business_process"
+    assert execution["tool_results"]
+    assert broker.calls
+    assert broker.calls[0]["tool_id"] in {"email_tool", "messaging_tool", "custom_api_tool"}
+    assert result["requires_human_approval"] is True
 
 
 def _kernel_manifest() -> dict[str, object]:
@@ -131,6 +237,8 @@ async def test_runtime_persists_kernel_plan_and_roi_metadata() -> None:
     kernel = task["workflow_output"]["kernel"]
     assert kernel["task_lane"] == "hybrid"
     assert kernel["plan"]["required_tools"]
+    assert kernel["execution"]["lane_handler"] == "hybrid"
+    assert kernel["execution"]["context_source"] == "context_assembler"
     assert metrics["roi"]["estimated_minutes_saved"] > 0
 
 

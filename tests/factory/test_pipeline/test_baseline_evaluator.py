@@ -141,6 +141,24 @@ class FakeClient:
                                 "completion_criteria": ["output_created", "audit_recorded", "roi_recorded"],
                             },
                             "classification": {"confidence": 0.86},
+                            "execution": {
+                                "lane_handler": lane,
+                                "assembled_context": "TASK INPUT\nBaseline fixture context.",
+                                "context_source": "context_assembler",
+                                "tool_results": (
+                                    [
+                                        {
+                                            "tool_id": "email_tool",
+                                            "action": "check_inbox",
+                                            "success": True,
+                                        }
+                                    ]
+                                    if lane in {"business_process", "hybrid"}
+                                    else []
+                                ),
+                                "deliverables": [{"type": "brief", "body": "Done"}],
+                                "approval_required": lane == "hybrid",
+                            },
                         }
                     },
                     "result_card": {"executive_summary": "Done"},
