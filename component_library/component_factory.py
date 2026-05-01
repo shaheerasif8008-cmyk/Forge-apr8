@@ -28,7 +28,7 @@ def _wire_model_clients(components: dict[str, BaseComponent]) -> None:
     model_client: Any | None = components.get("litellm_router") or components.get("anthropic_provider")
     if model_client is None:
         return
-    for component_id in ("text_processor", "document_analyzer", "draft_generator"):
+    for component_id in ("text_processor", "document_analyzer", "draft_generator", "workflow_executor"):
         component = components.get(component_id)
         if component is None:
             continue

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from component_library.work.data_analyzer import DataAnalyzer
 from component_library.work.schemas import DataAnalysisRequest
+
+
+MONTH_END_FIXTURE_DIR = Path("factory/pipeline/evaluator/fixtures/accountant_month_end")
 
 
 class _MockCompleter:
@@ -47,6 +52,32 @@ async def test_data_analyzer_accepts_csv() -> None:
     )
     assert report.key_metrics["row_count"] == 2
     assert any(column.name == "revenue" for column in report.schema)
+
+
+@pytest.mark.anyio
+async def test_data_analyzer_ingests_month_end_accounting_sources() -> None:
+    analyzer = DataAnalyzer()
+    await analyzer.initialize({})
+    report = await analyzer.execute(
+        DataAnalysisRequest(
+            question="Prepare a month-end close package from the bank, GL, AP, and AR exports.",
+            source_csvs={
+                "bank_feed": (MONTH_END_FIXTURE_DIR / "bank_feed.csv").read_text(),
+                "general_ledger": (MONTH_END_FIXTURE_DIR / "general_ledger.csv").read_text(),
+                "ap_aging": (MONTH_END_FIXTURE_DIR / "ap_aging.csv").read_text(),
+                "ar_aging": (MONTH_END_FIXTURE_DIR / "ar_aging.csv").read_text(),
+            },
+        )
+    )
+
+    assert report.key_metrics["sources"] == ["ap_aging", "ar_aging", "bank_feed", "general_ledger"]
+    assert report.key_metrics["bank_balance"] == 10100.0
+    assert report.key_metrics["gl_cash_balance"] == 10500.0
+    assert report.key_metrics["cash_reconciliation_difference"] == -400.0
+    assert report.key_metrics["ap_overdue_total"] == 14380.0
+    assert report.key_metrics["ar_overdue_total"] == 8800.0
+    assert "cash reconciliation difference" in report.narrative_summary.lower()
+    assert "AP overdue" in report.narrative_summary
 
 
 @pytest.mark.anyio

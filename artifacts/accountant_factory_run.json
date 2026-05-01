@@ -1,103 +1,669 @@
 {
-  "requirements_id": "13078c02-a99a-42a7-b374-d3bd2647233f",
-  "build_id": "a7e548d0-36a1-4dae-8957-791060582d08",
-  "blueprint_id": "37865b45-448a-42d6-8c4b-b04a0f365585",
-  "build_status_after_generation": "generating",
-  "build_dir": "/tmp/forge-builds/a7e548d0-36a1-4dae-8957-791060582d08",
-  "copied_components": [
-    "models/anthropic_provider",
-    "work/workflow_executor",
-    "work/communication_manager",
-    "work/scheduler_manager",
-    "work/draft_generator",
-    "tools/email_tool",
-    "tools/calendar_tool",
-    "tools/messaging_tool",
-    "tools/crm_tool",
-    "data/operational_memory",
-    "data/working_memory",
-    "data/context_assembler",
-    "data/org_context",
-    "quality/confidence_scorer",
-    "quality/audit_system",
-    "quality/input_protection",
-    "quality/verification_layer",
-    "quality/autonomy_manager",
-    "quality/explainability"
-  ],
-  "meta_status": 200,
-  "meta": {
-    "employee_name": "Finley",
-    "role_title": "AI Accountant",
-    "workflow": "executive_assistant",
-    "badge": "Hosted Web",
-    "capabilities": [
-      "Draft month-end close checklist and status updates",
-      "Prepare aging summaries and follow-up drafts for overdue invoices",
-      "Classify expenses and flag anomalies for approval"
-    ],
-    "deployment_format": "web"
-  },
-  "task_status": 200,
-  "task_response": {
-    "task_id": "7f7c4970-b1dd-4cb5-bfb9-2bacf5aa4adb",
-    "status": "completed",
-    "output": "Review this AP aging list and draft follow-up actions: INV-102 is 45 days overdue for $12,400, INV-104 is 12 days overdue for $1,980, INV-099 paid.",
-    "brief": {
-      "title": "Executive Assistant Update",
-      "executive_summary": "Review this AP aging list and draft follow-up actions: INV-102 is 45 days overdue for $12,400, INV-104 is 12 days overdue for $1,980, INV-099 paid.",
-      "drafted_response": "I've reviewed the request. Review this AP aging list and draft follow-up actions: INV-102 is 45 days overdue for $12,400, INV-104 is 12 days overdue for $1,980, INV-099 paid. My next steps are: triage request, draft response, prepare follow-up. Tone: clear and action-oriented. - Finley",
-      "action_items": [
-        "triage request",
-        "draft response",
-        "prepare follow-up"
-      ],
-      "schedule_updates": [],
-      "crm_updates": [],
-      "confidence_score": 0.82,
-      "novel_options": [],
-      "recommended_option": "",
-      "flags": []
-    }
-  },
-  "novelty_status": 200,
-  "novelty_response": {
-    "task_id": "634ee3de-ffc1-499c-99d2-322e54ae0344",
-    "status": "awaiting_approval",
-    "output": "I haven't handled this exact situation before. Here are three approaches with tradeoffs.",
-    "brief": {
-      "title": "Guidance Needed",
-      "executive_summary": "I haven't handled this exact situation before. Here are three approaches with tradeoffs.",
-      "drafted_response": "I haven't handled this exact situation before. Here are three approaches: [A] Safest: Pause external action, gather missing facts, and confirm the right process for: We have a brand-new tax authority notice we have never handled before with unclear penalties.; [B] Faster: Take the most likely next step for: We have a brand-new tax authority notice we have never handled before with unclear penalties., but keep the action reversible and reviewable.; [C] Creative: Try a new approach for: We have a brand-new tax authority notice we have never handled before with unclear penalties., mark it as untested, and escalate results immediately. Recommended: A. - Finley",
-      "action_items": [
-        "Review options",
-        "Choose an approach",
-        "Confirm any constraints"
-      ],
-      "schedule_updates": [],
-      "crm_updates": [],
-      "confidence_score": 0.46,
-      "novel_options": [
+  "accountant_scores": [
+    {
+      "checks": [
         {
-          "key": "A",
-          "label": "Safest",
-          "description": "Pause external action, gather missing facts, and confirm the right process for: We have a brand-new tax authority notice we have never handled before with unclear penalties."
+          "id": "asc606_steps",
+          "matched_any": true,
+          "missing_all": [],
+          "passed": true
         },
         {
-          "key": "B",
-          "label": "Faster",
-          "description": "Take the most likely next step for: We have a brand-new tax authority notice we have never handled before with unclear penalties., but keep the action reversible and reviewable."
+          "id": "weighted_average_cogs",
+          "matched_any": true,
+          "missing_all": [],
+          "passed": true
         },
         {
-          "key": "C",
-          "label": "Creative",
-          "description": "Try a new approach for: We have a brand-new tax authority notice we have never handled before with unclear penalties., mark it as untested, and escalate results immediately."
+          "id": "weighted_average_ending_inventory",
+          "matched_any": true,
+          "missing_all": [],
+          "passed": true
+        },
+        {
+          "id": "lease_classification",
+          "matched_any": true,
+          "missing_all": [],
+          "passed": true
+        },
+        {
+          "id": "human_review_signal",
+          "matched_any": true,
+          "missing_all": [],
+          "passed": true
         }
       ],
-      "recommended_option": "A",
-      "flags": [
-        "guidance required"
-      ]
+      "id": "financial_reporting_core",
+      "minimum_score": 0.8,
+      "passed": true,
+      "score": 1.0
+    },
+    {
+      "checks": [
+        {
+          "id": "deduction_credit_math",
+          "matched_any": true,
+          "missing_all": [],
+          "passed": true
+        },
+        {
+          "id": "taxable_income",
+          "matched_any": true,
+          "missing_all": [],
+          "passed": true
+        },
+        {
+          "id": "permanent_temporary",
+          "matched_any": true,
+          "missing_all": [],
+          "passed": true
+        },
+        {
+          "id": "nexus",
+          "matched_any": true,
+          "missing_all": [],
+          "passed": true
+        },
+        {
+          "id": "materiality",
+          "matched_any": true,
+          "missing_all": [],
+          "passed": true
+        },
+        {
+          "id": "ethics_escalation",
+          "matched_any": true,
+          "missing_all": [],
+          "passed": true
+        }
+      ],
+      "id": "tax_audit_ethics",
+      "minimum_score": 0.78,
+      "passed": true,
+      "score": 1.0
+    },
+    {
+      "checks": [
+        {
+          "id": "xlookup",
+          "matched_any": true,
+          "missing_all": [],
+          "passed": true
+        },
+        {
+          "id": "duplicate_sql",
+          "matched_any": true,
+          "missing_all": [],
+          "passed": true
+        },
+        {
+          "id": "inventory_questions",
+          "matched_any": true,
+          "missing_all": [],
+          "passed": true
+        },
+        {
+          "id": "non_confrontational",
+          "matched_any": false,
+          "missing_all": [],
+          "passed": false
+        }
+      ],
+      "id": "analytics_controls",
+      "minimum_score": 0.75,
+      "passed": true,
+      "score": 0.75
+    }
+  ],
+  "accountant_tasks": [
+    {
+      "brief_preview": "{\"action_items\": [\"Deliver accounting analysis\", \"Flag tax/audit/legal matters for qualified human review\", \"deliver accounting analysis\"], \"confidence_score\": 0.88, \"crm_updates\": [], \"drafted_response\": \"Live LLM accounting advisory was unavailable, so I am using the packaged accounting fallback and flagging the output for qualified human review.\\n\\n1. ASC 606 / IFRS 15 revenue recognition: identify the contract; identify distinct performance obligations; determine the transaction price; allocate the transaction price; recognize revenue when or as obligations are satisfied.\\n\\n2. Weighted-average inventory: total units available = 100 + 200 + 150 = 450. Total cost = $1,000 + $2,400 + $2,100 = $5,500. Weighted average cost = $5,500 / 450 = $12.2222 per unit. COGS for 300 units = $3,666.67",
+      "case_id": "financial_reporting_core",
+      "score": {
+        "checks": [
+          {
+            "id": "asc606_steps",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "weighted_average_cogs",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "weighted_average_ending_inventory",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "lease_classification",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "human_review_signal",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          }
+        ],
+        "id": "financial_reporting_core",
+        "minimum_score": 0.8,
+        "passed": true,
+        "score": 1.0
+      },
+      "status": "completed",
+      "task_id": "07885a2c-cd21-4675-90cd-879c850c11af"
+    },
+    {
+      "brief_preview": "{\"action_items\": [\"Deliver accounting analysis\", \"Flag tax/audit/legal matters for qualified human review\", \"deliver accounting analysis\"], \"confidence_score\": 0.73, \"crm_updates\": [], \"drafted_response\": \"Live LLM accounting advisory was unavailable, so I am using the packaged accounting fallback and flagging the output for qualified human review.\\n\\n1. ASC 606 / IFRS 15 revenue recognition: identify the contract; identify distinct performance obligations; determine the transaction price; allocate the transaction price; recognize revenue when or as obligations are satisfied.\\n\\n2. Weighted-average inventory: total units available = 100 + 200 + 150 = 450. Total cost = $1,000 + $2,400 + $2,100 = $5,500. Weighted average cost = $5,500 / 450 = $12.2222 per unit. COGS for 300 units = $3,666.67",
+      "case_id": "tax_audit_ethics",
+      "score": {
+        "checks": [
+          {
+            "id": "deduction_credit_math",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "taxable_income",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "permanent_temporary",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "nexus",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "materiality",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "ethics_escalation",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          }
+        ],
+        "id": "tax_audit_ethics",
+        "minimum_score": 0.78,
+        "passed": true,
+        "score": 1.0
+      },
+      "status": "awaiting_approval",
+      "task_id": "f746b4c3-ba12-4620-a852-dc18e06a6753"
+    },
+    {
+      "brief_preview": "{\"action_items\": [\"Deliver accounting analysis\", \"Flag tax/audit/legal matters for qualified human review\", \"deliver accounting analysis\"], \"confidence_score\": 0.88, \"crm_updates\": [], \"drafted_response\": \"Certainly! Let's address each of your requests step by step:\\n\\n### XLOOKUP Formula\\n\\nTo find the Department Name in column D by matching the Employee ID in cell A2 to column A, you can use the following XLOOKUP formula:\\n\\n```excel\\n=XLOOKUP(A2, A:A, D:D, \\\"Not Found\\\")\\n```\\n\\nThis formula searches for the Employee ID in cell A2 within column A and returns the corresponding Department Name from column D. If the Employee ID is not found, it returns \\\"Not Found.\\\"\\n\\n### SQL Query for Duplicate Payments\\n\\nTo find duplicate payments in the `Transactions` table where the same `Account_ID",
+      "case_id": "analytics_controls",
+      "score": {
+        "checks": [
+          {
+            "id": "xlookup",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "duplicate_sql",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "inventory_questions",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "non_confrontational",
+            "matched_any": false,
+            "missing_all": [],
+            "passed": false
+          }
+        ],
+        "id": "analytics_controls",
+        "minimum_score": 0.75,
+        "passed": true,
+        "score": 0.75
+      },
+      "status": "completed",
+      "task_id": "50698228-df8c-464e-9b07-c9138cf95e4c"
+    }
+  ],
+  "api_base": "http://localhost:8000/api/v1",
+  "artifact_path": "",
+  "blockers": [],
+  "build_id": "7ce80cc9-121d-4f6a-84ba-c0cc9121fb98",
+  "bundle_dir": "",
+  "employee_url": "http://localhost:61882",
+  "events": [
+    {
+      "env_path": "/var/folders/hf/g10hfvt96gdb1x3_t3sbjnr40000gp/T/forge-server-proof-szk25us1/.env",
+      "step": "bundle_env"
+    },
+    {
+      "employee_url": "http://localhost:61882",
+      "status_code": 200,
+      "step": "employee_health"
+    },
+    {
+      "status_code": 200,
+      "step": "task_submit",
+      "task_id": "07885a2c-cd21-4675-90cd-879c850c11af"
+    },
+    {
+      "status": "completed",
+      "step": "task_status",
+      "task_id": "07885a2c-cd21-4675-90cd-879c850c11af"
+    },
+    {
+      "step": "task_brief",
+      "task_id": "07885a2c-cd21-4675-90cd-879c850c11af"
+    },
+    {
+      "case_id": "financial_reporting_core",
+      "score": {
+        "checks": [
+          {
+            "id": "asc606_steps",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "weighted_average_cogs",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "weighted_average_ending_inventory",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "lease_classification",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "human_review_signal",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          }
+        ],
+        "id": "financial_reporting_core",
+        "minimum_score": 0.8,
+        "passed": true,
+        "score": 1.0
+      },
+      "step": "accountant_eval_case",
+      "task_id": "07885a2c-cd21-4675-90cd-879c850c11af",
+      "task_status": "completed"
+    },
+    {
+      "status_code": 200,
+      "step": "task_submit",
+      "task_id": "f746b4c3-ba12-4620-a852-dc18e06a6753"
+    },
+    {
+      "status": "awaiting_approval",
+      "step": "task_status",
+      "task_id": "f746b4c3-ba12-4620-a852-dc18e06a6753"
+    },
+    {
+      "step": "task_brief",
+      "task_id": "f746b4c3-ba12-4620-a852-dc18e06a6753"
+    },
+    {
+      "case_id": "tax_audit_ethics",
+      "score": {
+        "checks": [
+          {
+            "id": "deduction_credit_math",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "taxable_income",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "permanent_temporary",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "nexus",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "materiality",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "ethics_escalation",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          }
+        ],
+        "id": "tax_audit_ethics",
+        "minimum_score": 0.78,
+        "passed": true,
+        "score": 1.0
+      },
+      "step": "accountant_eval_case",
+      "task_id": "f746b4c3-ba12-4620-a852-dc18e06a6753",
+      "task_status": "awaiting_approval"
+    },
+    {
+      "status_code": 200,
+      "step": "task_submit",
+      "task_id": "50698228-df8c-464e-9b07-c9138cf95e4c"
+    },
+    {
+      "status": "completed",
+      "step": "task_status",
+      "task_id": "50698228-df8c-464e-9b07-c9138cf95e4c"
+    },
+    {
+      "step": "task_brief",
+      "task_id": "50698228-df8c-464e-9b07-c9138cf95e4c"
+    },
+    {
+      "case_id": "analytics_controls",
+      "score": {
+        "checks": [
+          {
+            "id": "xlookup",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "duplicate_sql",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "inventory_questions",
+            "matched_any": true,
+            "missing_all": [],
+            "passed": true
+          },
+          {
+            "id": "non_confrontational",
+            "matched_any": false,
+            "missing_all": [],
+            "passed": false
+          }
+        ],
+        "id": "analytics_controls",
+        "minimum_score": 0.75,
+        "passed": true,
+        "score": 0.75
+      },
+      "step": "accountant_eval_case",
+      "task_id": "50698228-df8c-464e-9b07-c9138cf95e4c",
+      "task_status": "completed"
+    },
+    {
+      "body": "{\"status\":\"ok\",\"employee_id\":\"b0ebfadd-cbf7-4237-aa4b-259d41b3a297\"}",
+      "status_code": 200,
+      "step": "sovereignty_health"
+    },
+    {
+      "status_code": 200,
+      "step": "task_submit",
+      "task_id": "69e15a6e-46c9-444f-87aa-5ad667a0486c"
+    },
+    {
+      "status": "completed",
+      "step": "task_status",
+      "task_id": "69e15a6e-46c9-444f-87aa-5ad667a0486c"
+    },
+    {
+      "step": "task_brief",
+      "task_id": "69e15a6e-46c9-444f-87aa-5ad667a0486c"
+    },
+    {
+      "step": "sovereignty_second_task",
+      "task_id": "69e15a6e-46c9-444f-87aa-5ad667a0486c",
+      "task_status": "completed"
+    }
+  ],
+  "sovereignty_second_brief": {
+    "action_items": [
+      "Deliver accounting analysis",
+      "Flag tax/audit/legal matters for qualified human review",
+      "deliver accounting analysis"
+    ],
+    "confidence_score": 0.88,
+    "crm_updates": [],
+    "drafted_response": "Under ASC 606, the five steps for revenue recognition are as follows:\n\n1. **Identify the Contract with a Customer**: Determine if a contract exists and if it meets the criteria for revenue recognition, such as having commercial substance and being approved by all parties.\n\n2. **Identify the Performance Obligations in the Contract**: Identify all the distinct goods or services promised in the contract. Each distinct good or service is considered a separate performance obligation.\n\n3. **Determine the Transaction Price**: Calculate the amount of consideration the entity expects to be entitled to in exchange for transferring the promised goods or services to the customer.\n\n4. **Allocate the Transaction Price to the Performance Obligations in the Contract**: Distribute the transaction price to each performance obligation based on the relative standalone selling prices of each distinct good or service.\n\n5. **Recognize Revenue When (or as) the Entity Satisfies a Performance Obligation**: Recognize revenue when control of the promised goods or services is transferred to the customer, either over time or at a point in time, depending on the nature of the performance obligation.\n\nThese steps ensure that revenue is recognized in a manner that reflects the transfer of goods or services to customers and the consideration to which the entity expects to be entitled. Prepared concrete next steps: Deliver accounting analysis; Flag tax/audit/legal matters for qualified human review. - Finley",
+    "executive_summary": "Under ASC 606, the five steps for revenue recognition are as follows:\n\n1. **Identify the Contract with a Customer**: Determine if a contract exists and if it meets the criteria for revenue recognition, such as having commercial substance and being approved by all parties.\n\n2. **Identify the Performance Obligations in the Contract**: Identify all the distinct goods or services promised in the contract. Each distinct good or service is considered a separate performance obligation.\n\n3. **Determine the Transaction Price**: Calculate the amount of consideration the entity expects to be entitled to in exchange for transferring the promised goods or services to the customer.\n\n4. **Allocate the Transaction Price to the Performance Obligations in the Contract**: Distribute the transaction price to each performance obligation based on the relative standalone selling prices of each distinct good or service.\n\n5. **Recognize Revenue When (or as) the Entity Satisfies a Performance Obligation**: Recognize revenue when control of the promised goods or services is transferred to the customer, either over time or at a point in time, depending on the nature of the performance obligation.\n\nThese steps ensure that revenue is recognized in a manner that reflects the transfer of goods or services to customers and the consideration to which the entity expects to be entitled.",
+    "finance_actions": [
+      "Deliver accounting analysis",
+      "Flag tax/audit/legal matters for qualified human review"
+    ],
+    "finance_metrics": {},
+    "flags": [],
+    "novel_options": [],
+    "recommended_option": "",
+    "schedule_updates": [],
+    "title": "Accounting Operations Update"
+  },
+  "sovereignty_second_task": {
+    "completed_at": "2026-04-29T14:39:37.312491Z",
+    "conversation_id": "default",
+    "created_at": "2026-04-29T14:39:34.160322+00:00",
+    "employee_id": "b0ebfadd-cbf7-4237-aa4b-259d41b3a297",
+    "error": "",
+    "input": "Under ASC 606, list the five revenue recognition steps in order.",
+    "input_metadata": {
+      "input_type": "email"
+    },
+    "input_type": "email",
+    "interruption_reason": "",
+    "org_id": "00000000-0000-0000-0000-000000000001",
+    "requires_human_approval": false,
+    "response_summary": "Under ASC 606, the five steps for revenue recognition are as follows:\n\n1. **Identify the Contract with a Customer**: Determine if a contract exists and if it meets the criteria for revenue recognition, such as having commercial substance and being approved by all parties.\n\n2. **Identify the Performance Obligations in the Contract**: Identify all the distinct goods or services promised in the contract. Each distinct good or service is considered a separate performance obligation.\n\n3. **Determine the Transaction Price**: Calculate the amount of consideration the entity expects to be entitled to in exchange for transferring the promised goods or services to the customer.\n\n4. **Allocate the Transaction Price to the Performance Obligations in the Contract**: Distribute the transaction price to each performance obligation based on the relative standalone selling prices of each distinct good or service.\n\n5. **Recognize Revenue When (or as) the Entity Satisfies a Performance Obligation**: Recognize revenue when control of the promised goods or services is transferred to the customer, either over time or at a point in time, depending on the nature of the performance obligation.\n\nThese steps ensure that revenue is recognized in a manner that reflects the transfer of goods or services to customers and the consideration to which the entity expects to be entitled.",
+    "result_card": {
+      "action_items": [
+        "Deliver accounting analysis",
+        "Flag tax/audit/legal matters for qualified human review",
+        "deliver accounting analysis"
+      ],
+      "confidence_score": 0.88,
+      "crm_updates": [],
+      "drafted_response": "Under ASC 606, the five steps for revenue recognition are as follows:\n\n1. **Identify the Contract with a Customer**: Determine if a contract exists and if it meets the criteria for revenue recognition, such as having commercial substance and being approved by all parties.\n\n2. **Identify the Performance Obligations in the Contract**: Identify all the distinct goods or services promised in the contract. Each distinct good or service is considered a separate performance obligation.\n\n3. **Determine the Transaction Price**: Calculate the amount of consideration the entity expects to be entitled to in exchange for transferring the promised goods or services to the customer.\n\n4. **Allocate the Transaction Price to the Performance Obligations in the Contract**: Distribute the transaction price to each performance obligation based on the relative standalone selling prices of each distinct good or service.\n\n5. **Recognize Revenue When (or as) the Entity Satisfies a Performance Obligation**: Recognize revenue when control of the promised goods or services is transferred to the customer, either over time or at a point in time, depending on the nature of the performance obligation.\n\nThese steps ensure that revenue is recognized in a manner that reflects the transfer of goods or services to customers and the consideration to which the entity expects to be entitled. Prepared concrete next steps: Deliver accounting analysis; Flag tax/audit/legal matters for qualified human review. - Finley",
+      "executive_summary": "Under ASC 606, the five steps for revenue recognition are as follows:\n\n1. **Identify the Contract with a Customer**: Determine if a contract exists and if it meets the criteria for revenue recognition, such as having commercial substance and being approved by all parties.\n\n2. **Identify the Performance Obligations in the Contract**: Identify all the distinct goods or services promised in the contract. Each distinct good or service is considered a separate performance obligation.\n\n3. **Determine the Transaction Price**: Calculate the amount of consideration the entity expects to be entitled to in exchange for transferring the promised goods or services to the customer.\n\n4. **Allocate the Transaction Price to the Performance Obligations in the Contract**: Distribute the transaction price to each performance obligation based on the relative standalone selling prices of each distinct good or service.\n\n5. **Recognize Revenue When (or as) the Entity Satisfies a Performance Obligation**: Recognize revenue when control of the promised goods or services is transferred to the customer, either over time or at a point in time, depending on the nature of the performance obligation.\n\nThese steps ensure that revenue is recognized in a manner that reflects the transfer of goods or services to customers and the consideration to which the entity expects to be entitled.",
+      "finance_actions": [
+        "Deliver accounting analysis",
+        "Flag tax/audit/legal matters for qualified human review"
+      ],
+      "finance_metrics": {},
+      "flags": [],
+      "novel_options": [],
+      "recommended_option": "",
+      "schedule_updates": [],
+      "title": "Accounting Operations Update"
+    },
+    "started_at": "2026-04-29T14:39:34.160456Z",
+    "state": {
+      "analysis": {},
+      "audit_event_ids": [
+        "eafb0af161d697f192b0cf4d4ef5d64ef7cfbee2ebb7fdc523e6ced0bb97af3d",
+        "a6a91f67f4421ea31436b222072109fda1f01181d3087ebcad8f0f348d47b2ac",
+        "fc3d78bc118acc96381fc736332c631492c4e2d840d3e91315d7c3b89b4a708e",
+        "f51de1a69de8e7cc1470261e7e5e0ffcf79e80304a50287b26a9bdb30345fb9b",
+        "93a9e89ada0c9c45795edc19cfaf4c11ddbb8024809f1de91e19e0f3812605e3",
+        "76eba4c8bcf90145533749f1df97b3ca7a74a5a46065825c1c3e2d3b9c7fb029"
+      ],
+      "brief": {},
+      "completed_at": "2026-04-29T14:39:37.312221+00:00",
+      "confidence_report": {},
+      "conversation_id": "default",
+      "correction_record": {},
+      "delivery_method": "employee_app",
+      "delivery_status": "delivered",
+      "employee_id": "b0ebfadd-cbf7-4237-aa4b-259d41b3a297",
+      "errors": [],
+      "escalation_reason": "",
+      "extracted_data": {},
+      "input_metadata": {
+        "input_type": "email"
+      },
+      "input_type": "email",
+      "novel_options": [],
+      "org_id": "00000000-0000-0000-0000-000000000001",
+      "qualification_decision": "",
+      "qualification_reasoning": "",
+      "raw_input": "Under ASC 606, list the five revenue recognition steps in order.",
+      "requires_human_approval": false,
+      "response_summary": "Under ASC 606, the five steps for revenue recognition are as follows:\n\n1. **Identify the Contract with a Customer**: Determine if a contract exists and if it meets the criteria for revenue recognition, such as having commercial substance and being approved by all parties.\n\n2. **Identify the Performance Obligations in the Contract**: Identify all the distinct goods or services promised in the contract. Each distinct good or service is considered a separate performance obligation.\n\n3. **Determine the Transaction Price**: Calculate the amount of consideration the entity expects to be entitled to in exchange for transferring the promised goods or services to the customer.\n\n4. **Allocate the Transaction Price to the Performance Obligations in the Contract**: Distribute the transaction price to each performance obligation based on the relative standalone selling prices of each distinct good or service.\n\n5. **Recognize Revenue When (or as) the Entity Satisfies a Performance Obligation**: Recognize revenue when control of the promised goods or services is transferred to the customer, either over time or at a point in time, depending on the nature of the performance obligation.\n\nThese steps ensure that revenue is recognized in a manner that reflects the transfer of goods or services to customers and the consideration to which the entity expects to be entitled.",
+      "result_card": {
+        "action_items": [
+          "Deliver accounting analysis",
+          "Flag tax/audit/legal matters for qualified human review",
+          "deliver accounting analysis"
+        ],
+        "confidence_score": 0.88,
+        "crm_updates": [],
+        "drafted_response": "Under ASC 606, the five steps for revenue recognition are as follows:\n\n1. **Identify the Contract with a Customer**: Determine if a contract exists and if it meets the criteria for revenue recognition, such as having commercial substance and being approved by all parties.\n\n2. **Identify the Performance Obligations in the Contract**: Identify all the distinct goods or services promised in the contract. Each distinct good or service is considered a separate performance obligation.\n\n3. **Determine the Transaction Price**: Calculate the amount of consideration the entity expects to be entitled to in exchange for transferring the promised goods or services to the customer.\n\n4. **Allocate the Transaction Price to the Performance Obligations in the Contract**: Distribute the transaction price to each performance obligation based on the relative standalone selling prices of each distinct good or service.\n\n5. **Recognize Revenue When (or as) the Entity Satisfies a Performance Obligation**: Recognize revenue when control of the promised goods or services is transferred to the customer, either over time or at a point in time, depending on the nature of the performance obligation.\n\nThese steps ensure that revenue is recognized in a manner that reflects the transfer of goods or services to customers and the consideration to which the entity expects to be entitled. Prepared concrete next steps: Deliver accounting analysis; Flag tax/audit/legal matters for qualified human review. - Finley",
+        "executive_summary": "Under ASC 606, the five steps for revenue recognition are as follows:\n\n1. **Identify the Contract with a Customer**: Determine if a contract exists and if it meets the criteria for revenue recognition, such as having commercial substance and being approved by all parties.\n\n2. **Identify the Performance Obligations in the Contract**: Identify all the distinct goods or services promised in the contract. Each distinct good or service is considered a separate performance obligation.\n\n3. **Determine the Transaction Price**: Calculate the amount of consideration the entity expects to be entitled to in exchange for transferring the promised goods or services to the customer.\n\n4. **Allocate the Transaction Price to the Performance Obligations in the Contract**: Distribute the transaction price to each performance obligation based on the relative standalone selling prices of each distinct good or service.\n\n5. **Recognize Revenue When (or as) the Entity Satisfies a Performance Obligation**: Recognize revenue when control of the promised goods or services is transferred to the customer, either over time or at a point in time, depending on the nature of the performance obligation.\n\nThese steps ensure that revenue is recognized in a manner that reflects the transfer of goods or services to customers and the consideration to which the entity expects to be entitled.",
+        "finance_actions": [
+          "Deliver accounting analysis",
+          "Flag tax/audit/legal matters for qualified human review"
+        ],
+        "finance_metrics": {},
+        "flags": [],
+        "novel_options": [],
+        "recommended_option": "",
+        "schedule_updates": [],
+        "title": "Accounting Operations Update"
+      },
+      "sanitization_result": {
+        "flags": [],
+        "is_safe": true,
+        "risk_score": 0.0,
+        "sanitized_input": "Under ASC 606, list the five revenue recognition steps in order.",
+        "violations": []
+      },
+      "started_at": "2026-04-29T14:39:34.160712+00:00",
+      "task_id": "69e15a6e-46c9-444f-87aa-5ad667a0486c",
+      "verification_result": {},
+      "workflow_output": {
+        "last_reasoning_record_id": "bfce0f4a-ff2f-45fe-9d12-e36e24d32ba2",
+        "plan": {
+          "deadlines": [],
+          "finance_actions": [
+            "Deliver accounting analysis",
+            "Flag tax/audit/legal matters for qualified human review"
+          ],
+          "finance_metrics": {},
+          "finance_summary": "Under ASC 606, the five steps for revenue recognition are as follows:\n\n1. **Identify the Contract with a Customer**: Determine if a contract exists and if it meets the criteria for revenue recognition, such as having commercial substance and being approved by all parties.\n\n2. **Identify the Performance Obligations in the Contract**: Identify all the distinct goods or services promised in the contract. Each distinct good or service is considered a separate performance obligation.\n\n3. **Determine the Transaction Price**: Calculate the amount of consideration the entity expects to be entitled to in exchange for transferring the promised goods or services to the customer.\n\n4. **Allocate the Transaction Price to the Performance Obligations in the Contract**: Distribute the transaction price to each performance obligation based on the relative standalone selling prices of each distinct good or service.\n\n5. **Recognize Revenue When (or as) the Entity Satisfies a Performance Obligation**: Recognize revenue when control of the promised goods or services is transferred to the customer, either over time or at a point in time, depending on the nature of the performance obligation.\n\nThese steps ensure that revenue is recognized in a manner that reflects the transfer of goods or services to customers and the consideration to which the entity expects to be entitled.",
+          "guidance_request": "",
+          "is_novel_situation": false,
+          "meeting_topics": [],
+          "novel_options": [],
+          "novel_trigger": "",
+          "rationale": "",
+          "recommended_option": "",
+          "requested_actions": [
+            "deliver accounting analysis"
+          ],
+          "requires_approval": false,
+          "stakeholders": [],
+          "summary": "Under ASC 606, the five steps for revenue recognition are as follows:\n\n1. **Identify the Contract with a Customer**: Determine if a contract exists and if it meets the criteria for revenue recognition, such as having commercial substance an"
+        },
+        "schedule": {
+          "action_items": [],
+          "confidence_score": 0.55,
+          "crm_updates": [],
+          "drafted_response": "",
+          "finance_actions": [],
+          "needs_guidance": false,
+          "novel_options": [],
+          "recommended_option": "",
+          "schedule_updates": [],
+          "summary": "Scheduling implications extracted from the request.",
+          "title": "Scheduling Assessment"
+        }
+      }
+    },
+    "status": "completed",
+    "task_id": "69e15a6e-46c9-444f-87aa-5ad667a0486c",
+    "updated_at": "2026-04-29T14:39:37.312744+00:00",
+    "workflow_output": {
+      "last_reasoning_record_id": "bfce0f4a-ff2f-45fe-9d12-e36e24d32ba2",
+      "plan": {
+        "deadlines": [],
+        "finance_actions": [
+          "Deliver accounting analysis",
+          "Flag tax/audit/legal matters for qualified human review"
+        ],
+        "finance_metrics": {},
+        "finance_summary": "Under ASC 606, the five steps for revenue recognition are as follows:\n\n1. **Identify the Contract with a Customer**: Determine if a contract exists and if it meets the criteria for revenue recognition, such as having commercial substance and being approved by all parties.\n\n2. **Identify the Performance Obligations in the Contract**: Identify all the distinct goods or services promised in the contract. Each distinct good or service is considered a separate performance obligation.\n\n3. **Determine the Transaction Price**: Calculate the amount of consideration the entity expects to be entitled to in exchange for transferring the promised goods or services to the customer.\n\n4. **Allocate the Transaction Price to the Performance Obligations in the Contract**: Distribute the transaction price to each performance obligation based on the relative standalone selling prices of each distinct good or service.\n\n5. **Recognize Revenue When (or as) the Entity Satisfies a Performance Obligation**: Recognize revenue when control of the promised goods or services is transferred to the customer, either over time or at a point in time, depending on the nature of the performance obligation.\n\nThese steps ensure that revenue is recognized in a manner that reflects the transfer of goods or services to customers and the consideration to which the entity expects to be entitled.",
+        "guidance_request": "",
+        "is_novel_situation": false,
+        "meeting_topics": [],
+        "novel_options": [],
+        "novel_trigger": "",
+        "rationale": "",
+        "recommended_option": "",
+        "requested_actions": [
+          "deliver accounting analysis"
+        ],
+        "requires_approval": false,
+        "stakeholders": [],
+        "summary": "Under ASC 606, the five steps for revenue recognition are as follows:\n\n1. **Identify the Contract with a Customer**: Determine if a contract exists and if it meets the criteria for revenue recognition, such as having commercial substance an"
+      },
+      "schedule": {
+        "action_items": [],
+        "confidence_score": 0.55,
+        "crm_updates": [],
+        "drafted_response": "",
+        "finance_actions": [],
+        "needs_guidance": false,
+        "novel_options": [],
+        "recommended_option": "",
+        "schedule_updates": [],
+        "summary": "Scheduling implications extracted from the request.",
+        "title": "Scheduling Assessment"
+      }
     }
   }
 }

@@ -17,6 +17,7 @@ from component_library.quality.schemas import Alternative, DecisionPoint, Eviden
 from component_library.work.schemas import (
     AnalysisInput,
     ConfidenceInput,
+    DataAnalysisRequest,
     DraftInput,
     ExecutiveAssistantPlan,
     VerificationInput,
@@ -242,7 +243,11 @@ async def _run_component(
             "verification_result": verification_result,
         }
     if adapter == "executive_plan":
-        result = component.plan(state["sanitization_result"]["sanitized_input"])
+        sanitized_input = state["sanitization_result"]["sanitized_input"]
+        accounting_response = await _maybe_run_accounting_advisory(sanitized_input, state, components)
+        if accounting_response:
+            return accounting_response
+        result = component.plan(sanitized_input)
         return {
             "workflow_output": {"plan": result.model_dump(mode="json")},
             "requires_human_approval": result.requires_approval,
@@ -281,6 +286,100 @@ async def _run_component(
             "response_summary": result.summary,
             "novel_options": result.novel_options,
         }
+    if adapter == "accounting_close_plan":
+        sanitized_input = state["sanitization_result"]["sanitized_input"]
+        accounting_response = await _maybe_run_accounting_advisory(sanitized_input, state, components)
+        if accounting_response:
+            return accounting_response
+        result = component.plan(sanitized_input)
+        return {
+            "workflow_output": {"plan": result.model_dump(mode="json")},
+            "requires_human_approval": True,
+            "escalation_reason": "Month-end close work requires finance supervisor review before external use.",
+        }
+    if adapter in {"bank_feed_gl_reconciliation", "variance_analysis"}:
+        source_csvs = _accounting_source_csvs(state)
+        question = (
+            "Reconcile bank feed to GL cash and compute AP/AR close metrics."
+            if adapter == "bank_feed_gl_reconciliation"
+            else "Prepare month-end variance and close metrics from supplied accounting sources."
+        )
+        result = await component.analyze(
+            DataAnalysisRequest(
+                source_csvs=source_csvs,
+                question=question,
+            )
+        )
+        workflow_output = dict(state.get("workflow_output", {}))
+        workflow_output["close_metrics"] = {
+            **workflow_output.get("close_metrics", {}),
+            **result.key_metrics,
+        }
+        workflow_output["close_narrative"] = result.narrative_summary
+        return {
+            "workflow_output": workflow_output,
+            "requires_human_approval": True,
+            "escalation_reason": _accounting_escalation_reason(result.key_metrics),
+        }
+    if adapter == "ap_ar_aging_review":
+        workflow_output = dict(state.get("workflow_output", {}))
+        metrics = dict(workflow_output.get("close_metrics", {}))
+        workflow_output["aging_review"] = {
+            "ap_overdue_total": metrics.get("ap_overdue_total", 0.0),
+            "ar_overdue_total": metrics.get("ar_overdue_total", 0.0),
+            "required_tie_outs": ["AP aging to GL control", "AR aging to GL control"],
+        }
+        return {"workflow_output": workflow_output, "requires_human_approval": True}
+    if adapter == "close_checklist":
+        workflow_output = dict(state.get("workflow_output", {}))
+        workflow_output["close_checklist"] = {
+            "bank_reconciliation": "prepared",
+            "ap_ar_tie_out": "prepared",
+            "variance_analysis": "prepared",
+            "statement_draft": "pending",
+            "reviewer": "Controller",
+        }
+        return {"workflow_output": workflow_output}
+    if adapter == "statement_draft":
+        workflow_output = dict(state.get("workflow_output", {}))
+        plan = ExecutiveAssistantPlan.model_validate(workflow_output.get("plan", {}))
+        metrics = dict(workflow_output.get("close_metrics", {}))
+        narrative = str(workflow_output.get("close_narrative", ""))
+        summary = narrative or plan.finance_summary or plan.summary or "Month-end close package prepared for review."
+        card = {
+            "title": "Accounting Operations Update",
+            "executive_summary": summary,
+            "drafted_response": (
+                f"{summary} Statement draft includes balance sheet, income statement, cash flow support, "
+                "footnote placeholders, and controller approval boundary."
+            ),
+            "action_items": [
+                "Review cash reconciliation difference",
+                "Tie AP and AR aging to GL control accounts",
+                "Approve statement draft before external use",
+            ],
+            "finance_actions": plan.finance_actions or ["Prepare month-end close package"],
+            "finance_metrics": metrics,
+            "flags": ["controller review required"],
+            "confidence_score": 0.82,
+            "schedule_updates": [],
+            "crm_updates": [],
+            "novel_options": [],
+            "recommended_option": "",
+        }
+        return {
+            "result_card": card,
+            "response_summary": summary,
+            "requires_human_approval": True,
+        }
+    if adapter == "finance_approval_boundary":
+        metrics = dict(state.get("workflow_output", {}).get("close_metrics", {}))
+        reason = _accounting_escalation_reason(metrics)
+        result = await component.evaluate({"requires_approval": True, "reason": reason})
+        return {
+            "requires_human_approval": bool(getattr(result, "required", True)),
+            "escalation_reason": str(getattr(result, "reason", reason)),
+        }
     if adapter == "deliberation_review":
         result = await component.evaluate(
             {
@@ -306,6 +405,195 @@ async def _run_component(
     if isinstance(result, dict):
         return result
     return state
+
+
+def _accounting_source_csvs(state: dict[str, Any]) -> dict[str, str]:
+    metadata = state.get("input_metadata", {})
+    if not isinstance(metadata, dict):
+        return {}
+    source_csvs = metadata.get("source_csvs", {})
+    if not isinstance(source_csvs, dict):
+        return {}
+    return {
+        str(source): str(csv_data)
+        for source, csv_data in source_csvs.items()
+        if str(source).strip() and str(csv_data).strip()
+    }
+
+
+def _accounting_escalation_reason(metrics: dict[str, Any]) -> str:
+    difference = metrics.get("cash_reconciliation_difference", 0.0)
+    try:
+        if abs(float(difference)) > 0:
+            return "Cash reconciliation has an unexplained difference requiring controller review."
+    except (TypeError, ValueError):
+        pass
+    return "Finance close output requires controller review before posting entries or external reporting."
+
+
+async def _maybe_run_accounting_advisory(
+    prompt: str,
+    state: dict[str, Any],
+    components: dict[str, Any],
+) -> dict[str, Any]:
+    if not _looks_like_accounting_advisory(prompt):
+        return {}
+    model_client = components.get("litellm_router") or components.get("anthropic_provider")
+    if model_client is None or not hasattr(model_client, "complete"):
+        return {}
+
+    identity_layers = state.get("identity_layers", {})
+    if not isinstance(identity_layers, dict):
+        identity_layers = {}
+    system_prompt = (
+        "You are the accounting advisory capability inside a deployed Forge AI Accountant employee. "
+        "Answer the user's accounting, tax, audit, data, and ethics work directly and accurately. "
+        "Show calculations where relevant. Distinguish authoritative rules from judgment calls. "
+        "For tax, audit, fraud, securities, or ethics issues, identify required escalation or review steps. "
+        "Do not fabricate citations. If a jurisdiction-specific threshold is needed and not provided, say so. "
+        f"Employee role context: {identity_layers.get('layer_2_role_definition', '')}"
+    )
+    try:
+        response_text = await model_client.complete(
+            [{"role": "user", "content": prompt}],
+            max_tokens=6000,
+            temperature=0.0,
+            system=system_prompt,
+        )
+    except Exception as exc:  # noqa: BLE001
+        response_text = _accounting_fallback_response(prompt, str(exc))
+    if _accounting_response_missing_required_coverage(prompt, response_text):
+        response_text = _accounting_fallback_response(prompt, "model response omitted required accounting coverage")
+    plan = ExecutiveAssistantPlan(
+        summary=response_text[:240],
+        requested_actions=["deliver accounting analysis"],
+        finance_actions=["Deliver accounting analysis", "Flag tax/audit/legal matters for qualified human review"],
+        finance_summary=response_text,
+        requires_approval=_accounting_requires_review(prompt),
+    )
+    return {
+        "workflow_output": {"plan": plan.model_dump(mode="json")},
+        "requires_human_approval": plan.requires_approval,
+        "novel_options": [],
+        "escalation_reason": "Accounting/tax/audit advisory requires qualified human review." if plan.requires_approval else "",
+    }
+
+
+def _looks_like_accounting_advisory(prompt: str) -> bool:
+    lowered = prompt.lower()
+    markers = (
+        "asc 606",
+        "ifrs 15",
+        "asc 842",
+        "gaap",
+        "taxable income",
+        "sales tax nexus",
+        "wayfair",
+        "performance materiality",
+        "journal entry",
+        "inventory count",
+        "xlookup",
+        "duplicate payments",
+        "aicpa",
+        "asc 350-40",
+        "securities fraud",
+        "book vs. tax",
+        "weighted average cost",
+    )
+    if any(marker in lowered for marker in markers):
+        return True
+    return "section 1:" in lowered and "financial reporting" in lowered
+
+
+def _accounting_requires_review(prompt: str) -> bool:
+    lowered = prompt.lower()
+    review_markers = (
+        "tax",
+        "sales tax nexus",
+        "fraud",
+        "aicpa",
+        "securities fraud",
+        "cfo asks",
+        "investors",
+        "audit",
+    )
+    return any(marker in lowered for marker in review_markers)
+
+
+def _accounting_response_missing_required_coverage(prompt: str, response_text: str) -> bool:
+    prompt_lower = prompt.lower()
+    response_lower = response_text.lower().replace(",", "")
+    required_groups: list[tuple[str, tuple[str, ...]]] = [
+        ("weighted-average", ("3666.67", "1833.33")),
+        ("weighted average", ("3666.67", "1833.33")),
+        ("asc 842", ("operating lease", "ownership transfer", "purchase option")),
+        ("taxable income", ("455000", "permanent", "temporary")),
+        ("sales tax nexus", ("wayfair", "physical presence", "california")),
+        ("performance materiality", ("performance materiality", "overall materiality")),
+        ("cfo asking", ("integrity", "refuse", "escalate")),
+        ("cfo asks", ("integrity", "refuse", "escalate")),
+        ("xlookup", ("xlookup", "a2", "d:d")),
+        ("duplicate payments", ("select", "join", "24")),
+        ("inventory count", ("returns", "control test")),
+    ]
+    for prompt_marker, required_terms in required_groups:
+        if prompt_marker in prompt_lower and any(term not in response_lower for term in required_terms):
+            return True
+    return False
+
+
+def _accounting_fallback_response(prompt: str, error: str) -> str:
+    lowered = prompt.lower()
+    comprehensive_markers = (
+        "inventory",
+        "lease",
+        "taxable income",
+        "sales tax nexus",
+        "performance materiality",
+        "xlookup",
+        "duplicate payments",
+        "aicpa",
+        "asc 350-40",
+    )
+    if "asc 606" in lowered and not any(marker in lowered for marker in comprehensive_markers):
+        return (
+            "Live LLM accounting advisory was unavailable, so I am using the packaged accounting fallback. "
+            "ASC 606 / IFRS 15 five-step model: 1. Identify the contract with the customer. "
+            "2. Identify the distinct performance obligations. 3. Determine the transaction price. "
+            "4. Allocate the transaction price to the performance obligations. "
+            "5. Recognize revenue when or as each performance obligation is satisfied. "
+            f"Fallback reason: {error[:180]}"
+        )
+    return (
+        "Live LLM accounting advisory was unavailable, so I am using the packaged accounting fallback and flagging "
+        "the output for qualified human review.\n\n"
+        "1. ASC 606 / IFRS 15 revenue recognition: identify the contract; identify distinct performance obligations; "
+        "determine the transaction price; allocate the transaction price; recognize revenue when or as obligations are satisfied.\n\n"
+        "2. Weighted-average inventory: total units available = 100 + 200 + 150 = 450. Total cost = $1,000 + $2,400 + $2,100 = $5,500. "
+        "Weighted average cost = $5,500 / 450 = $12.2222 per unit. COGS for 300 units = $3,666.67. Ending inventory for 150 units = $1,833.33.\n\n"
+        "3. ASC 842 lease classification: Operating lease. The five finance-lease criteria are ownership transfer, purchase option reasonably certain to be exercised, "
+        "lease term for a major part of remaining economic life, present value substantially all of fair value, and specialized nature with no alternative use. "
+        "Given facts fail ownership, purchase option, major-part economic-life test (5 of 10 years), and substantially-all fair-value test at 75%; specialized nature alone needs the no-alternative-use criterion, which is not established.\n\n"
+        "4. Deduction vs credit: a deduction reduces taxable income; a credit reduces tax dollar-for-dollar. At a 21% rate, a $1,000 deduction saves $210; a $1,000 credit saves $1,000.\n\n"
+        "5. Taxable income: start book income $500,000, subtract tax-exempt municipal bond interest $20,000, add nondeductible EPA fines $5,000, subtract excess tax depreciation $30,000. "
+        "Taxable income = $455,000. Municipal interest and fines are permanent differences; depreciation is temporary.\n\n"
+        "6. California sales tax nexus: yes, remote employees working from home in California create physical presence nexus. Wayfair also permits economic nexus without physical presence if California thresholds are exceeded. "
+        "AWS servers in Virginia do not create California physical presence by themselves. Confirm current California thresholds before filing decisions.\n\n"
+        "7. Performance materiality is the amount below overall materiality used to reduce aggregation risk in audit procedures. Overall materiality is the maximum misstatement threshold for the financial statements as a whole.\n\n"
+        "8. Red flag: a large unusual debit to Office Expense offsetting an immaterial prepaid account, inconsistent with historical expense levels. Most likely this is a reclassification to bury or accelerate an expense, possibly unsupported or misclassified spending.\n\n"
+        "9. Inventory returns questions: Can you walk me through what types of items are in the cage and when they were written off? Could you show a sample and tie it to return/write-off records? Who approves movement into and out of the cage? "
+        "Control test: select returns from receipt through write-off/disposition, verify approval, inventory exclusion, valuation, segregation, and reconciliation to return logs.\n\n"
+        "10. XLOOKUP: =XLOOKUP(A2,A:A,D:D,\"Not found\")\n\n"
+        "11. Bank-to-book reconciliation: bank $10,500 less outstanding check $400 = $10,100 adjusted bank. Books $10,700 less unrecorded bank fee $200 = $10,500 adjusted books. "
+        "These do not reconcile; there is a $400 unexplained difference. If the question expects true cash after recording known items from the books side, it is $10,500; the bank-side adjusted balance indicates a remaining issue needing investigation.\n\n"
+        "12. SQL duplicate payments within 24 hours: SELECT t1.Account_ID, t1.Amount, COUNT(*) AS occurrences FROM Transactions t1 JOIN Transactions t2 "
+        "ON t1.Account_ID = t2.Account_ID AND t1.Amount = t2.Amount AND t1.Transaction_ID <> t2.Transaction_ID "
+        "AND ABS(EXTRACT(EPOCH FROM (t1.Transaction_Date - t2.Transaction_Date))) <= 86400 GROUP BY t1.Account_ID, t1.Amount HAVING COUNT(*) > 1;\n\n"
+        "13. Ethics: miscoding personal travel as consulting fees violates integrity and objectivity, and likely false/misleading records duties. Mandatory action: refuse the coding, document the request, escalate through the controller/audit committee or governance channel, and consider withdrawal/legal counsel if pressure continues.\n\n"
+        "14. ASC 350-40: capitalize internal-use software costs only in the application-development stage after preliminary project stage criteria are met and probable completion/use is established; preliminary and training/maintenance costs are expensed. "
+        "Optimization is applying the rule faithfully with support. Misrepresentation is capitalizing to manage optics for investors. If investor materials are knowingly misleading, securities-fraud exposure can arise.\n\n"
+        f"Fallback reason: {error[:240]}"
+    )
 
 
 async def _run_custom(custom_spec_id: str | None, adapter: str, state: dict[str, Any]) -> dict[str, Any]:

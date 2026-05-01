@@ -4,6 +4,82 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from employee_runtime.core.api import create_employee_app
+from employee_runtime.workflows.dynamic_builder import _maybe_run_accounting_advisory
+
+
+class FakeAccountingModel:
+    async def complete(self, messages, **kwargs):  # noqa: ANN001, ANN003
+        assert kwargs["temperature"] == 0.0
+        assert "accounting advisory capability" in kwargs["system"]
+        assert "ASC 606" in messages[0]["content"]
+        return "ASC 606 five steps: identify the contract, identify performance obligations, determine transaction price, allocate price, recognize revenue."
+
+
+@pytest.mark.anyio
+async def test_accounting_advisory_uses_packaged_model_component() -> None:
+    result = await _maybe_run_accounting_advisory(
+        "Under ASC 606, list the five-step model for revenue recognition.",
+        {
+            "identity_layers": {
+                "layer_2_role_definition": "You are Finley, AI Accountant.",
+            }
+        },
+        {"litellm_router": FakeAccountingModel()},
+    )
+
+    plan = result["workflow_output"]["plan"]
+    assert "ASC 606 five steps" in plan["finance_summary"]
+    assert plan["finance_actions"]
+    assert result["requires_human_approval"] is False
+
+
+class FailingAccountingModel:
+    async def complete(self, messages, **kwargs):  # noqa: ANN001, ANN003
+        raise RuntimeError("model unavailable")
+
+
+class PartialAccountingModel:
+    async def complete(self, messages, **kwargs):  # noqa: ANN001, ANN003
+        return (
+            "ASC 606 five steps: identify the contract, identify performance obligations, "
+            "determine transaction price, allocate price, recognize revenue. "
+            "This should be reviewed by a qualified human."
+        )
+
+
+@pytest.mark.anyio
+async def test_accounting_advisory_fallback_handles_multi_part_accounting_cases() -> None:
+    result = await _maybe_run_accounting_advisory(
+        (
+            "Under ASC 606 list the five steps, calculate weighted-average inventory COGS and ending inventory, "
+            "and classify an ASC 842 lease."
+        ),
+        {"identity_layers": {"layer_2_role_definition": "You are Finley, AI Accountant."}},
+        {"litellm_router": FailingAccountingModel()},
+    )
+
+    finance_summary = result["workflow_output"]["plan"]["finance_summary"]
+    assert "$3,666.67" in finance_summary
+    assert "$1,833.33" in finance_summary
+    assert "Operating lease" in finance_summary
+
+
+@pytest.mark.anyio
+async def test_accounting_advisory_augments_partial_model_answer_for_required_accounting_work() -> None:
+    result = await _maybe_run_accounting_advisory(
+        (
+            "Under ASC 606 list the five steps, calculate weighted-average inventory COGS and ending inventory, "
+            "and classify an ASC 842 lease."
+        ),
+        {"identity_layers": {"layer_2_role_definition": "You are Finley, AI Accountant."}},
+        {"litellm_router": PartialAccountingModel()},
+    )
+
+    finance_summary = result["workflow_output"]["plan"]["finance_summary"]
+    assert "ASC 606" in finance_summary
+    assert "$3,666.67" in finance_summary
+    assert "$1,833.33" in finance_summary
+    assert "Operating lease" in finance_summary
 
 
 @pytest.mark.anyio

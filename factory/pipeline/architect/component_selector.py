@@ -31,7 +31,7 @@ LEGAL_BASELINE_COMPONENTS: tuple[tuple[str, str, dict[str, object]], ...] = (
 )
 
 EXECUTIVE_ASSISTANT_COMPONENTS: tuple[tuple[str, str, dict[str, object]], ...] = (
-    ("models", "anthropic_provider", {"model": "claude-3-5-sonnet-20241022"}),
+    ("models", "litellm_router", {}),
     ("work", "workflow_executor", {}),
     ("work", "communication_manager", {}),
     ("work", "scheduler_manager", {}),
@@ -49,6 +49,28 @@ EXECUTIVE_ASSISTANT_COMPONENTS: tuple[tuple[str, str, dict[str, object]], ...] =
     ("quality", "input_protection", {}),
     ("quality", "verification_layer", {}),
     ("quality", "autonomy_manager", {}),
+)
+
+ACCOUNTANT_COMPONENTS: tuple[tuple[str, str, dict[str, object]], ...] = (
+    ("models", "litellm_router", {}),
+    ("work", "workflow_executor", {}),
+    ("work", "communication_manager", {}),
+    ("work", "document_analyzer", {}),
+    ("work", "draft_generator", {}),
+    ("work", "data_analyzer", {}),
+    ("tools", "email_tool", {}),
+    ("tools", "calendar_tool", {}),
+    ("tools", "file_storage_tool", {}),
+    ("data", "operational_memory", {}),
+    ("data", "working_memory", {}),
+    ("data", "context_assembler", {}),
+    ("data", "org_context", {}),
+    ("quality", "confidence_scorer", {}),
+    ("quality", "audit_system", {}),
+    ("quality", "input_protection", {}),
+    ("quality", "verification_layer", {}),
+    ("quality", "autonomy_manager", {}),
+    ("quality", "approval_manager", {}),
 )
 
 TOOL_MAP: dict[str, str] = {
@@ -93,11 +115,12 @@ async def select_components(requirements: EmployeeRequirements) -> list[Selected
 
 
 def _select_components_with_fallback(requirements: EmployeeRequirements) -> list[SelectedComponent]:
-    baseline = (
-        EXECUTIVE_ASSISTANT_COMPONENTS
-        if requirements.employee_type == EmployeeArchetype.EXECUTIVE_ASSISTANT
-        else LEGAL_BASELINE_COMPONENTS
-    )
+    baseline_by_type = {
+        EmployeeArchetype.EXECUTIVE_ASSISTANT: EXECUTIVE_ASSISTANT_COMPONENTS,
+        EmployeeArchetype.ACCOUNTANT: ACCOUNTANT_COMPONENTS,
+        EmployeeArchetype.LEGAL_INTAKE_ASSOCIATE: LEGAL_BASELINE_COMPONENTS,
+    }
+    baseline = baseline_by_type[requirements.employee_type]
     components: list[SelectedComponent] = [
         SelectedComponent(category=category, component_id=component_id, config=_component_config(component_id, config))
         for category, component_id, config in baseline
@@ -132,7 +155,10 @@ def _component_config(component_id: str, config: dict[str, object]) -> dict[str,
     if component_id != "litellm_router":
         return config
     settings = get_settings()
-    if settings.openai_api_key:
+    if settings.openrouter_api_key:
+        primary = settings.llm_primary_model
+        fallback = settings.llm_fallback_model
+    elif settings.openai_api_key:
         primary = "gpt-4o"
         fallback = "gpt-4o-mini"
     else:
@@ -215,3 +241,8 @@ def _validate_selected_components(
         missing = required - component_ids
         if missing:
             raise ArchitectError(f"Missing executive assistant components: {', '.join(sorted(missing))}")
+    if requirements.employee_type == EmployeeArchetype.ACCOUNTANT:
+        required = {"workflow_executor", "communication_manager", "data_analyzer", "approval_manager"}
+        missing = required - component_ids
+        if missing:
+            raise ArchitectError(f"Missing accountant components: {', '.join(sorted(missing))}")

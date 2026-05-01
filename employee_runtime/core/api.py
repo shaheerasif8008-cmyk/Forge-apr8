@@ -67,8 +67,12 @@ OPTIONAL_COMPONENT_MODULES = (
     "component_library.quality.adversarial_review",
     "component_library.quality.compliance_rules",
     "component_library.quality.confidence_scorer",
+    "component_library.quality.evidence_binder",
     "component_library.quality.explainability",
     "component_library.quality.input_protection",
+    "component_library.quality.policy_authority_engine",
+    "component_library.quality.quality_review_engine",
+    "component_library.quality.roi_meter",
     "component_library.quality.verification_layer",
     "component_library.tools.calendar_tool",
     "component_library.tools.crm_tool",
@@ -77,10 +81,13 @@ OPTIONAL_COMPONENT_MODULES = (
     "component_library.tools.file_storage_tool",
     "component_library.tools.messaging_tool",
     "component_library.work.communication_manager",
+    "component_library.work.data_analyzer",
     "component_library.work.document_analyzer",
     "component_library.work.draft_generator",
     "component_library.work.scheduler_manager",
+    "component_library.work.task_orchestrator",
     "component_library.work.text_processor",
+    "component_library.work.work_intake_router",
     "component_library.work.workflow_executor",
 )
 
@@ -96,6 +103,17 @@ def _import_packaged_component_modules() -> None:
 
 
 _import_packaged_component_modules()
+
+
+class NoStoreStaticFiles(StaticFiles):
+    """Serve generated employee apps without reusing stale localhost assets."""
+
+    async def get_response(self, path: str, scope: dict[str, Any]) -> Response:
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
 
 
 class TaskRequest(BaseModel):
@@ -1368,6 +1386,8 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
     async def authenticate_api_requests(request: Request, call_next):
         if request.url.path in {"/health", "/api/v1/health", "/api/v1/ready", "/api/v1/recovery"}:
             return await call_next(request)
+        if not request.url.path.startswith("/api/v1"):
+            return await call_next(request)
         try:
             authorize_request(request, auth_config)
         except HTTPException as exc:
@@ -1746,7 +1766,7 @@ def create_employee_app(employee_id: str, config: dict[str, Any] | None = None) 
         if not static_path.is_absolute():
             static_path = Path.cwd() / static_path
         if static_path.exists():
-            app.mount("/", StaticFiles(directory=static_path, html=True), name="employee-frontend")
+            app.mount("/", NoStoreStaticFiles(directory=static_path, html=True), name="employee-frontend")
 
     return app
 
