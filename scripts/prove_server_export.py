@@ -37,6 +37,192 @@ DOCKER_PATH_DIRS = (
 SUCCESS_BUILD_STATUSES = {"pending_client_action", "deployed"}
 FAIL_BUILD_STATUSES = {"failed"}
 FINAL_TASK_STATUSES = {"completed", "failed", "awaiting_approval"}
+SUPPORTED_ARCHETYPES = ("legal_intake", "executive_assistant", "accountant")
+
+
+ARCHETYPE_COMMISSIONS: dict[str, dict[str, Any]] = {
+    "legal_intake": {
+        "employee_type": "legal_intake_associate",
+        "name": "Cartwright Intake Associate",
+        "role_title": "Legal Intake Associate",
+        "role_summary": (
+            "Triages inbound legal intake emails, extracts facts, flags urgency, "
+            "and prepares structured intake briefs for partner review."
+        ),
+        "primary_responsibilities": [
+            "triage inbound intake emails",
+            "extract claimant facts and contact info",
+            "prepare partner-facing intake briefs",
+        ],
+        "kpis": ["triage latency", "brief completeness", "urgency recall"],
+        "required_tools": ["email", "messaging"],
+        "required_data_sources": ["conflicts_csv"],
+        "communication_channels": ["email", "slack", "app"],
+        "risk_tier": "high",
+        "supervisor_email": "dana.cartwright@example.com",
+        "org_context": {
+            "firm_info": {
+                "name": "Cartwright Law",
+                "practice_areas": ["wrongful termination", "wage disputes", "harassment"],
+            },
+            "default_attorney": "Dana Cartwright",
+            "people": [
+                {
+                    "name": "Dana Cartwright",
+                    "role": "Managing Partner",
+                    "email": "dana.cartwright@example.com",
+                    "preferred_channel": "slack",
+                    "communication_style": "urgent and concise",
+                    "relationship": "supervisor",
+                }
+            ],
+        },
+        "org_map": [
+            {
+                "name": "Dana Cartwright",
+                "role": "Managing Partner",
+                "email": "dana.cartwright@example.com",
+                "preferred_channel": "slack",
+                "communication_style": "urgent and concise",
+                "relationship": "supervisor",
+            }
+        ],
+        "authority_matrix": {
+            "send_outbound_email": "requires_approval",
+            "accept_client": "requires_approval",
+            "reject_client": "requires_approval",
+        },
+        "raw_intake": (
+            "Cartwright Law is a 10-attorney employment law firm. "
+            "Flag statute-of-limitations issues and deadline language immediately. "
+            "Conflict check against a CSV list of current clients."
+        ),
+    },
+    "executive_assistant": {
+        "employee_type": "executive_assistant",
+        "name": "Morgan Executive Assistant",
+        "role_title": "Executive Assistant",
+        "role_summary": (
+            "Coordinates executive operations, manages calendar triage, prepares briefings, "
+            "and routes follow-ups with approval boundaries."
+        ),
+        "primary_responsibilities": [
+            "prioritize executive inbox requests",
+            "prepare daily briefings",
+            "coordinate scheduling follow-ups",
+        ],
+        "kpis": ["response latency", "calendar conflict resolution", "briefing completeness"],
+        "required_tools": ["email", "calendar", "messaging"],
+        "required_data_sources": ["executive_preferences", "calendar"],
+        "communication_channels": ["email", "slack", "app"],
+        "risk_tier": "low",
+        "supervisor_email": "avery.morgan@example.com",
+        "org_context": {
+            "firm_info": {"name": "Morgan Operations", "practice_areas": ["executive operations"]},
+            "people": [
+                {
+                    "name": "Avery Morgan",
+                    "role": "CEO",
+                    "email": "avery.morgan@example.com",
+                    "preferred_channel": "slack",
+                    "communication_style": "concise with options",
+                    "relationship": "supervisor",
+                }
+            ],
+        },
+        "org_map": [
+            {
+                "name": "Avery Morgan",
+                "role": "CEO",
+                "email": "avery.morgan@example.com",
+                "preferred_channel": "slack",
+                "communication_style": "concise with options",
+                "relationship": "supervisor",
+            }
+        ],
+        "authority_matrix": {
+            "send_calendar_invite": "requires_approval",
+            "decline_meeting": "requires_approval",
+        },
+        "raw_intake": "Coordinate executive inbox, calendar, and daily briefing workflows.",
+    },
+    "accountant": {
+        "employee_type": "accountant",
+        "name": "Finley Controller Associate",
+        "role_title": "Accountant",
+        "role_summary": (
+            "Prepares month-end accounting workpapers, reconciliations, variance analysis, "
+            "and controller-ready review packets."
+        ),
+        "primary_responsibilities": [
+            "prepare month-end close packets",
+            "reconcile bank and GL balances",
+            "draft variance analysis memos",
+        ],
+        "kpis": ["close packet completeness", "reconciliation accuracy", "review readiness"],
+        "required_tools": ["email", "data_analyzer"],
+        "required_data_sources": ["general_ledger", "bank_statements", "subledger_exports"],
+        "communication_channels": ["email", "app"],
+        "risk_tier": "medium",
+        "supervisor_email": "controller@example.com",
+        "org_context": {
+            "firm_info": {"name": "Finley Finance", "practice_areas": ["accounting operations"]},
+            "people": [
+                {
+                    "name": "Casey Controller",
+                    "role": "Controller",
+                    "email": "controller@example.com",
+                    "preferred_channel": "email",
+                    "communication_style": "evidence first",
+                    "relationship": "supervisor",
+                }
+            ],
+        },
+        "org_map": [
+            {
+                "name": "Casey Controller",
+                "role": "Controller",
+                "email": "controller@example.com",
+                "preferred_channel": "email",
+                "communication_style": "evidence first",
+                "relationship": "supervisor",
+            }
+        ],
+        "authority_matrix": {
+            "post_journal_entry": "requires_approval",
+            "approve_payment": "never_do_alone",
+        },
+        "raw_intake": "Prepare accounting workpapers and controller review packets from structured exports.",
+    },
+}
+
+
+ARCHETYPE_TASKS = {
+    "legal_intake": (
+        "Subject: URGENT - Statute of Limitations Expiring\n\n"
+        "I was injured at my workplace 2 years and 11 months ago. I just learned that the "
+        "statute of limitations for personal injury in our state is 3 years. That means I only "
+        "have about 30 days to file. Please contact me IMMEDIATELY.\n\n"
+        "Maria Garcia, (555) 222-3333, maria.garcia@email.com\n"
+        "Injury: Chemical burn at Westfield Chemical plant on May 14, 2023",
+        "Subject: Car Accident - Need Legal Help\n\n"
+        "My name is Sarah Johnson and I was in a car accident on February 15, 2026. "
+        "The other driver ran a red light. I have $45,000 in medical bills. "
+        "Phone: (555) 123-4567.",
+    ),
+    "executive_assistant": (
+        "Prepare today's executive briefing from overnight board email, a 2 PM investor call, "
+        "and a scheduling conflict with the product review.",
+        "A partner asked for a 30-minute meeting tomorrow while the CEO is traveling. "
+        "Propose options and flag what needs approval.",
+    ),
+    "accountant": (
+        "Prepare a month-end close package from trial balance, bank statement, AP aging, and AR aging. "
+        "List tie-outs, evidence, and supervisor review boundaries.",
+        "Reconcile bank ending balance $10,000 with deposits in transit $1,200, outstanding checks $1,100, "
+        "and GL balance $9,850. Calculate adjusted bank balance and escalation boundary.",
+    ),
+}
 
 
 @dataclass
@@ -49,6 +235,7 @@ class ProofContext:
     artifact_path: str = ""
     employee_url: str = ""
     employee_key: str = DEFAULT_EMPLOYEE_KEY
+    archetype: str = "legal_intake"
     bundle_dir: str = ""
     events: list[dict[str, object]] = field(default_factory=list)
     blockers: list[str] = field(default_factory=list)
@@ -70,6 +257,12 @@ def _parse_args() -> argparse.Namespace:
         "--bundle-dir",
         default="",
         help="Optional directory for extracted handoff bundle. Defaults to a temp dir.",
+    )
+    parser.add_argument(
+        "--archetype",
+        choices=SUPPORTED_ARCHETYPES,
+        default="legal_intake",
+        help="Fixture commission archetype to prove.",
     )
     return parser.parse_args()
 
@@ -263,71 +456,24 @@ def _commission_build(ctx: ProofContext) -> None:
         "POST",
         f"{ctx.api_base}/commissions",
         headers=headers,
-        payload={
-            "org_id": DEFAULT_ORG_ID,
-            "employee_type": "legal_intake_associate",
-            "name": "Cartwright Intake Associate",
-            "role_title": "Legal Intake Associate",
-            "role_summary": (
-                "Triages inbound legal intake emails, extracts facts, flags urgency, "
-                "and prepares structured intake briefs for partner review."
-            ),
-            "primary_responsibilities": [
-                "triage inbound intake emails",
-                "extract claimant facts and contact info",
-                "prepare partner-facing intake briefs",
-            ],
-            "kpis": ["triage latency", "brief completeness", "urgency recall"],
-            "required_tools": ["email", "messaging"],
-            "required_data_sources": ["conflicts_csv"],
-            "communication_channels": ["email", "slack", "app"],
-            "risk_tier": "high",
-            "deployment_format": "server",
-            "deployment_target": "client_server",
-            "supervisor_email": "dana.cartwright@example.com",
-            "org_context": {
-                "firm_info": {
-                    "name": "Cartwright Law",
-                    "practice_areas": ["wrongful termination", "wage disputes", "harassment"],
-                },
-                "default_attorney": "Dana Cartwright",
-                "people": [
-                    {
-                        "name": "Dana Cartwright",
-                        "role": "Managing Partner",
-                        "email": "dana.cartwright@example.com",
-                        "preferred_channel": "slack",
-                        "communication_style": "urgent and concise",
-                        "relationship": "supervisor",
-                    }
-                ],
-            },
-            "org_map": [
-                {
-                    "name": "Dana Cartwright",
-                    "role": "Managing Partner",
-                    "email": "dana.cartwright@example.com",
-                    "preferred_channel": "slack",
-                    "communication_style": "urgent and concise",
-                    "relationship": "supervisor",
-                }
-            ],
-            "authority_matrix": {
-                "send_outbound_email": "requires_approval",
-                "accept_client": "requires_approval",
-                "reject_client": "requires_approval",
-            },
-            "raw_intake": (
-                "Cartwright Law is a 10-attorney employment law firm. "
-                "Flag statute-of-limitations issues and deadline language immediately. "
-                "Conflict check against a CSV list of current clients."
-            ),
-        },
+        payload=_commission_payload_for_archetype(ctx.archetype),
     )
     if status != 202 or not payload.get("build_id"):
         raise RuntimeError(f"Commission request failed: HTTP {status} {payload}")
     ctx.build_id = str(payload["build_id"])
     ctx.record("commission", status_code=status, build_id=ctx.build_id)
+
+
+def _commission_payload_for_archetype(archetype: str) -> dict[str, Any]:
+    if archetype not in ARCHETYPE_COMMISSIONS:
+        raise ValueError(f"Unsupported archetype '{archetype}'. Expected one of: {', '.join(SUPPORTED_ARCHETYPES)}")
+    payload = {
+        "org_id": DEFAULT_ORG_ID,
+        "deployment_format": "server",
+        "deployment_target": "client_server",
+        **ARCHETYPE_COMMISSIONS[archetype],
+    }
+    return json.loads(json.dumps(payload))
 
 
 def _get_build(ctx: ProofContext) -> dict[str, Any]:
@@ -591,20 +737,8 @@ def main() -> int:
         print(_report(ctx))
         return 0 if ready else 2
 
-    urgent_email = (
-        "Subject: URGENT - Statute of Limitations Expiring\n\n"
-        "I was injured at my workplace 2 years and 11 months ago. I just learned that the "
-        "statute of limitations for personal injury in our state is 3 years. That means I only "
-        "have about 30 days to file. Please contact me IMMEDIATELY.\n\n"
-        "Maria Garcia, (555) 222-3333, maria.garcia@email.com\n"
-        "Injury: Chemical burn at Westfield Chemical plant on May 14, 2023"
-    )
-    second_email = (
-        "Subject: Car Accident - Need Legal Help\n\n"
-        "My name is Sarah Johnson and I was in a car accident on February 15, 2026. "
-        "The other driver ran a red light. I have $45,000 in medical bills. "
-        "Phone: (555) 123-4567."
-    )
+    ctx.archetype = args.archetype
+    first_task_input, second_task_input = ARCHETYPE_TASKS[args.archetype]
 
     try:
         _start_stack(ctx)
@@ -616,10 +750,10 @@ def main() -> int:
         _write_bundle_env(ctx, bundle_dir)
         _start_employee_bundle(ctx, bundle_dir)
 
-        task_id = _submit_task(ctx, urgent_email)
+        task_id = _submit_task(ctx, first_task_input)
         _wait_for_task(ctx, task_id)
         brief = _get_brief(ctx, task_id)
-        ctx.record("urgent_brief", brief=brief)
+        ctx.record("first_task_brief", brief=brief)
 
         _stop_factory_stack()
         status, _ = _request_text(f"{ctx.employee_url}/api/v1/health", timeout=10)
@@ -627,7 +761,7 @@ def main() -> int:
             raise RuntimeError(f"Employee health failed after factory stop: HTTP {status}")
         ctx.record("sovereignty_health", status_code=status)
 
-        second_task = _submit_task(ctx, second_email)
+        second_task = _submit_task(ctx, second_task_input)
         _wait_for_task(ctx, second_task)
         ctx.record("sovereignty_task", task_id=second_task)
     except Exception as exc:  # noqa: BLE001
