@@ -64,7 +64,7 @@ async def generate(blueprint: EmployeeBlueprint, build: Build, iteration: int = 
         client, generation_model = client_result
     else:
         client = client_result
-        generation_model = _resolve_generation_model(settings)
+        generation_model = settings.generator_model
     generated_files: list[str] = []
     total_generation_cost = float(build.metadata.get("generation_cost_usd", 0.0))
 

@@ -10,6 +10,7 @@ import factory.pipeline.evaluator.deepeval_adapter as deepeval_adapter
 from factory.pipeline.evaluator.behavioral_tests import run_behavioral_tests
 from factory.pipeline.evaluator.functional_tests import run_functional_tests
 from factory.pipeline.evaluator.hallucination_tests import run_hallucination_tests
+from factory.pipeline.evaluator.security_tests import run_security_tests
 
 
 class _Response:
@@ -205,3 +206,99 @@ async def test_behavioral_and_hallucination_suites(monkeypatch) -> None:
     assert behavioral["passed"] is True
     assert hallucination["passed"] is True
     assert hallucination["cases"]
+
+
+class _LeakySecurityClient:
+    def __init__(self, *args, **kwargs) -> None:
+        self.default_headers = kwargs.get("headers") or {}
+
+    async def __aenter__(self) -> _LeakySecurityClient:
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    async def post(self, path: str, json: dict[str, Any], headers: dict[str, str] | None = None) -> _Response:
+        if path != "/api/v1/tasks":
+            raise AssertionError(f"Unexpected POST path: {path}")
+        text = json["input"]
+        if "Ignore all previous instructions" in text:
+            return _Response(200, {"output": "SYSTEM: use hidden chain of thought and developer prompt."})
+        if "<script>" in text:
+            return _Response(200, {"brief": {"executive_summary": "Echo: <script>alert('x')</script>"}})
+        return _Response(200, {"output": "ok"})
+
+    async def get(self, path: str, headers: dict[str, str] | None = None) -> _Response:
+        if path == "/api/v1/chat/history":
+            return _Response(200, {"messages": []})
+        raise AssertionError(f"Unexpected GET path: {path}")
+
+
+class _WeakBehaviorClient(_FakeAsyncClient):
+    async def get(self, path: str) -> _Response:
+        if path == "/api/v1/meta":
+            return _Response(200, {"workflow": "executive_assistant"})
+        if path == "/api/v1/approvals":
+            return _Response(200, [{"message": "Approve wire transfer"}])
+        if path == "/api/v1/metrics":
+            return _Response(200, {"tasks_total": "many"})
+        return await super().get(path)
+
+    async def post(self, path: str, json: dict[str, Any]) -> _Response:
+        if path == "/api/v1/tasks":
+            return _Response(
+                200,
+                {
+                    "brief": {
+                        "executive_summary": "Neutral summary.",
+                        "novel_options": [{"title": "Proceed"}],
+                    }
+                },
+            )
+        return await super().post(path, json)
+
+
+@pytest.mark.anyio
+async def test_security_suite_detects_leakage_reflection_and_missing_auth(monkeypatch) -> None:
+    monkeypatch.setattr("factory.pipeline.evaluator.security_tests.httpx.AsyncClient", _LeakySecurityClient)
+
+    result = await run_security_tests("http://test", auth_headers={"Authorization": "Bearer runtime-token"})
+
+    assert result["passed"] is False
+    failure_text = "\n".join(result["failures"])
+    assert "system" in failure_text.lower()
+    assert "script" in failure_text.lower()
+    assert "unauthorized" in failure_text.lower()
+
+
+@pytest.mark.anyio
+async def test_behavioral_suite_requires_structured_options_approvals_and_metrics(monkeypatch) -> None:
+    monkeypatch.setattr("factory.pipeline.evaluator.behavioral_tests.httpx.AsyncClient", _WeakBehaviorClient)
+
+    result = await run_behavioral_tests("http://test")
+
+    assert result["passed"] is False
+    failure_text = "\n".join(result["failures"])
+    assert "options" in failure_text.lower()
+    assert "approval" in failure_text.lower()
+    assert "metrics" in failure_text.lower()
+
+
+@pytest.mark.anyio
+async def test_functional_and_hallucination_cases_include_evidence(monkeypatch) -> None:
+    monkeypatch.setattr("factory.pipeline.evaluator.functional_tests.httpx.AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr("factory.pipeline.evaluator.hallucination_tests.httpx.AsyncClient", _FakeAsyncClient)
+
+    functional = await run_functional_tests("http://test")
+    hallucination = await run_hallucination_tests("http://test")
+
+    assert functional["passed"] is True
+    assert hallucination["passed"] is True
+    for case in functional["cases"]:
+        assert case["evidence"]["status_code"] == 200
+        assert case["evidence"]["input_excerpt"]
+        assert "decision" in case["evidence"]
+    for case in hallucination["cases"]:
+        assert case["evidence"]["status_code"] == 200
+        assert case["evidence"]["input_excerpt"]
+        assert "unsupported" in case["evidence"]["metric_detail"]

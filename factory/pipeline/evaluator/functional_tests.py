@@ -36,11 +36,19 @@ async def run_functional_tests(base_url: str, *, auth_headers: dict[str, str] | 
                 json={"input": case["input"], "context": {"input_type": "email"}},
             )
             tests_run += 1
+            evidence = {
+                "status_code": response.status_code,
+                "input_excerpt": str(case["input"])[:160],
+                "expected_decision": case.get("expected_decision", ""),
+                "decision": "",
+            }
             if response.status_code != 200:
                 failures.append(f"{case['id']}: task failed with status {response.status_code}")
+                case_results.append({"id": case["id"], "passed": False, "metrics": [], "evidence": evidence})
                 continue
 
             payload = response.json()
+            evidence["decision"] = payload.get("brief", {}).get("analysis", {}).get("qualification_decision", "")
             metrics = [
                 json_schema_metric(payload),
                 answer_relevancy_metric(payload, case["expected_decision"]),
@@ -55,6 +63,7 @@ async def run_functional_tests(base_url: str, *, auth_headers: dict[str, str] | 
                     "id": case["id"],
                     "passed": case_passed,
                     "metrics": [metric.as_dict() for metric in metrics],
+                    "evidence": evidence,
                 }
             )
 

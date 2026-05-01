@@ -27,5 +27,12 @@ class PolicyManager:
         self._policies.setdefault(deployment_id, []).append(rule)
         return rule
 
+    def deactivate_rule(self, deployment_id: str, rule_id: str) -> PolicyRule | None:
+        for rule in self._policies.get(deployment_id, []):
+            if rule.rule_id == rule_id:
+                rule.active = False
+                return rule
+        return None
+
 
 policy_manager = PolicyManager()

@@ -30,12 +30,19 @@ async def run_hallucination_tests(base_url: str, *, auth_headers: dict[str, str]
                 json={"input": case["input"], "context": {"input_type": "email"}},
             )
             tests_run += 1
+            evidence = {
+                "status_code": response.status_code,
+                "input_excerpt": str(case["input"])[:160],
+                "metric_detail": "",
+            }
             if response.status_code != 200:
                 failures.append(f"{case['id']}: task failed with status {response.status_code}")
+                case_results.append({"id": case["id"], "metric": {}, "evidence": evidence})
                 continue
             metric = hallucination_metric(response.json(), case["input"])
             tests_run += 1
-            case_results.append({"id": case["id"], "metric": metric.as_dict()})
+            evidence["metric_detail"] = metric.detail
+            case_results.append({"id": case["id"], "metric": metric.as_dict(), "evidence": evidence})
             if not metric.passed:
                 failures.append(f"{case['id']}: hallucination score too high")
 
