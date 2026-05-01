@@ -76,6 +76,7 @@ OPTIONAL_COMPONENT_MODULES = (
     "component_library.tools.file_storage_tool",
     "component_library.tools.messaging_tool",
     "component_library.work.communication_manager",
+    "component_library.work.data_analyzer",
     "component_library.work.document_analyzer",
     "component_library.work.draft_generator",
     "component_library.work.scheduler_manager",

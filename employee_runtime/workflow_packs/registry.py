@@ -22,9 +22,10 @@ def get_workflow_pack(pack_id: str) -> WorkflowPack:
 def select_pack_ids(role_title: str, required_tools: list[str] | None = None) -> list[str]:
     lowered_role = role_title.lower()
     normalized_tools = {_normalize_tool_name(tool) for tool in (required_tools or [])}
-    selected = ["executive_assistant_pack"]
+    is_accounting = any(term in lowered_role for term in ("account", "finance", "bookkeep", "controller"))
+    selected = ["accounting_ops_pack"] if is_accounting else ["executive_assistant_pack"]
 
-    if any(term in lowered_role for term in ("account", "finance", "bookkeep", "controller")):
+    if is_accounting:
         selected.append("accounting_ops_pack")
     if any(term in lowered_role for term in ("legal", "law", "intake", "attorney")):
         selected.append("legal_intake_pack")

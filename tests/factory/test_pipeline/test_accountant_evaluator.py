@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from factory.models.build import BuildStatus
-from factory.pipeline.evaluator.accountant_tests import score_accountant_answer
+from factory.pipeline.evaluator.accountant_tests import DATASET_PATH, load_accountant_cases, score_accountant_answer
 from factory.pipeline.evaluator.test_runner import evaluate
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_accountant_scoring_uses_structured_case_expectations() -> None:
@@ -37,12 +42,88 @@ def test_accountant_scoring_uses_structured_case_expectations() -> None:
     assert [check["id"] for check in result["checks"]] == ["asc606", "inventory", "ethics"]
 
 
+def test_accountant_dataset_contains_paid_fte_metadata_contract() -> None:
+    raw_lines = [line for line in DATASET_PATH.read_text(encoding="utf-8").splitlines() if line.strip()]
+    cases = load_accountant_cases()
+
+    assert len(cases) == len(raw_lines)
+    assert len(cases) >= 8
+    assert len(cases) <= 12
+    for line in raw_lines:
+        json.loads(line)
+    for case in cases:
+        assert case["lane"]
+        assert case["workflow_stage"]
+        assert isinstance(case["fixture_files"], list)
+        assert case["fixture_files"]
+        for fixture_file in case["fixture_files"]:
+            assert (DATASET_PATH.parent.parent / fixture_file).exists(), fixture_file
+        assert isinstance(case["required_evidence"], list)
+        assert case["required_evidence"]
+        assert 0.7 <= float(case["minimum_score"]) <= 1.0
+        assert case["checks"]
+
+
+def test_accountant_scoring_requires_evidence_terms_and_numeric_answers() -> None:
+    case = {
+        "id": "bank_reconciliation_sample",
+        "minimum_score": 1.0,
+        "required_evidence": ["bank statement", "GL cash detail", "outstanding checks"],
+        "numeric_answers": [{"id": "adjusted_cash", "value": 10100.0, "tolerance": 0.01}],
+        "checks": [{"id": "reconciliation", "all_of": ["adjusted cash", "unexplained difference", "escalate"]}],
+    }
+
+    weak_answer = "Adjusted cash is $10,100. There is an unexplained difference, so escalate."
+    wrong_number_answer = (
+        "Using the bank statement, GL cash detail, and outstanding checks, adjusted cash is $10,000. "
+        "There is an unexplained difference, so escalate."
+    )
+    strong_answer = (
+        "Using the bank statement, GL cash detail, and outstanding checks, adjusted cash is $10,100. "
+        "There is an unexplained difference, so escalate."
+    )
+
+    weak_result = score_accountant_answer(weak_answer, case)
+    wrong_number_result = score_accountant_answer(wrong_number_answer, case)
+    strong_result = score_accountant_answer(strong_answer, case)
+
+    assert weak_result["passed"] is False
+    assert weak_result["evidence"][0]["passed"] is False
+    assert wrong_number_result["passed"] is False
+    assert wrong_number_result["numeric_answers"][0]["passed"] is False
+    assert strong_result["passed"] is True
+    assert strong_result["score"] == 1.0
+
+
+def test_accountant_paid_proof_contract_doc_covers_launch_bar() -> None:
+    contract = REPO_ROOT / "docs" / "proof" / "accountant_paid_proof_contract.md"
+    text = contract.read_text(encoding="utf-8").lower()
+
+    required_terms = [
+        "$100k/year digital fte",
+        "month-end close package",
+        "bank",
+        "gl",
+        "ap",
+        "ar",
+        "reconciliation",
+        "variance analysis",
+        "statement draft",
+        "escalation",
+        "auditability",
+        "sovereignty",
+    ]
+    for term in required_terms:
+        assert term in text
+
+
 @pytest.mark.anyio
 async def test_evaluator_routes_accountant_builds_to_accountant_fixture_suite(sample_build, monkeypatch) -> None:
     sample_build.metadata.update(
         {
             "image_tag": "forge:test",
-            "workflow_id": "executive_assistant",
+            "workflow_id": "accounting_ops",
+            "evaluation_profile": "accounting_ops",
             "employee_role": "AI Accountant",
         }
     )

@@ -42,11 +42,12 @@ async def assemble_blueprint(
         autonomy_profile["auto_approve_threshold"] = 0.95
         autonomy_profile["always_require_human_approval"] = True
 
-    workflow_id = (
-        "executive_assistant"
-        if requirements.employee_type == EmployeeArchetype.EXECUTIVE_ASSISTANT
-        else "legal_intake"
-    )
+    workflow_id_by_type = {
+        EmployeeArchetype.EXECUTIVE_ASSISTANT: "executive_assistant",
+        EmployeeArchetype.ACCOUNTANT: "accounting_ops",
+        EmployeeArchetype.LEGAL_INTAKE_ASSOCIATE: "legal_intake",
+    }
+    workflow_id = workflow_id_by_type[requirements.employee_type]
     component_ids = [component.component_id for component in components]
     tool_permissions = [component_id for component_id in component_ids if component_id.endswith("_tool")]
     identity_layers = IdentityLayerInputs(

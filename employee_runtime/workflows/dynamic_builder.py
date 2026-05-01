@@ -17,6 +17,7 @@ from component_library.quality.schemas import Alternative, DecisionPoint, Eviden
 from component_library.work.schemas import (
     AnalysisInput,
     ConfidenceInput,
+    DataAnalysisRequest,
     DraftInput,
     ExecutiveAssistantPlan,
     VerificationInput,
@@ -285,6 +286,100 @@ async def _run_component(
             "response_summary": result.summary,
             "novel_options": result.novel_options,
         }
+    if adapter == "accounting_close_plan":
+        sanitized_input = state["sanitization_result"]["sanitized_input"]
+        accounting_response = await _maybe_run_accounting_advisory(sanitized_input, state, components)
+        if accounting_response:
+            return accounting_response
+        result = component.plan(sanitized_input)
+        return {
+            "workflow_output": {"plan": result.model_dump(mode="json")},
+            "requires_human_approval": True,
+            "escalation_reason": "Month-end close work requires finance supervisor review before external use.",
+        }
+    if adapter in {"bank_feed_gl_reconciliation", "variance_analysis"}:
+        source_csvs = _accounting_source_csvs(state)
+        question = (
+            "Reconcile bank feed to GL cash and compute AP/AR close metrics."
+            if adapter == "bank_feed_gl_reconciliation"
+            else "Prepare month-end variance and close metrics from supplied accounting sources."
+        )
+        result = await component.analyze(
+            DataAnalysisRequest(
+                source_csvs=source_csvs,
+                question=question,
+            )
+        )
+        workflow_output = dict(state.get("workflow_output", {}))
+        workflow_output["close_metrics"] = {
+            **workflow_output.get("close_metrics", {}),
+            **result.key_metrics,
+        }
+        workflow_output["close_narrative"] = result.narrative_summary
+        return {
+            "workflow_output": workflow_output,
+            "requires_human_approval": True,
+            "escalation_reason": _accounting_escalation_reason(result.key_metrics),
+        }
+    if adapter == "ap_ar_aging_review":
+        workflow_output = dict(state.get("workflow_output", {}))
+        metrics = dict(workflow_output.get("close_metrics", {}))
+        workflow_output["aging_review"] = {
+            "ap_overdue_total": metrics.get("ap_overdue_total", 0.0),
+            "ar_overdue_total": metrics.get("ar_overdue_total", 0.0),
+            "required_tie_outs": ["AP aging to GL control", "AR aging to GL control"],
+        }
+        return {"workflow_output": workflow_output, "requires_human_approval": True}
+    if adapter == "close_checklist":
+        workflow_output = dict(state.get("workflow_output", {}))
+        workflow_output["close_checklist"] = {
+            "bank_reconciliation": "prepared",
+            "ap_ar_tie_out": "prepared",
+            "variance_analysis": "prepared",
+            "statement_draft": "pending",
+            "reviewer": "Controller",
+        }
+        return {"workflow_output": workflow_output}
+    if adapter == "statement_draft":
+        workflow_output = dict(state.get("workflow_output", {}))
+        plan = ExecutiveAssistantPlan.model_validate(workflow_output.get("plan", {}))
+        metrics = dict(workflow_output.get("close_metrics", {}))
+        narrative = str(workflow_output.get("close_narrative", ""))
+        summary = narrative or plan.finance_summary or plan.summary or "Month-end close package prepared for review."
+        card = {
+            "title": "Accounting Operations Update",
+            "executive_summary": summary,
+            "drafted_response": (
+                f"{summary} Statement draft includes balance sheet, income statement, cash flow support, "
+                "footnote placeholders, and controller approval boundary."
+            ),
+            "action_items": [
+                "Review cash reconciliation difference",
+                "Tie AP and AR aging to GL control accounts",
+                "Approve statement draft before external use",
+            ],
+            "finance_actions": plan.finance_actions or ["Prepare month-end close package"],
+            "finance_metrics": metrics,
+            "flags": ["controller review required"],
+            "confidence_score": 0.82,
+            "schedule_updates": [],
+            "crm_updates": [],
+            "novel_options": [],
+            "recommended_option": "",
+        }
+        return {
+            "result_card": card,
+            "response_summary": summary,
+            "requires_human_approval": True,
+        }
+    if adapter == "finance_approval_boundary":
+        metrics = dict(state.get("workflow_output", {}).get("close_metrics", {}))
+        reason = _accounting_escalation_reason(metrics)
+        result = await component.evaluate({"requires_approval": True, "reason": reason})
+        return {
+            "requires_human_approval": bool(getattr(result, "required", True)),
+            "escalation_reason": str(getattr(result, "reason", reason)),
+        }
     if adapter == "deliberation_review":
         result = await component.evaluate(
             {
@@ -310,6 +405,30 @@ async def _run_component(
     if isinstance(result, dict):
         return result
     return state
+
+
+def _accounting_source_csvs(state: dict[str, Any]) -> dict[str, str]:
+    metadata = state.get("input_metadata", {})
+    if not isinstance(metadata, dict):
+        return {}
+    source_csvs = metadata.get("source_csvs", {})
+    if not isinstance(source_csvs, dict):
+        return {}
+    return {
+        str(source): str(csv_data)
+        for source, csv_data in source_csvs.items()
+        if str(source).strip() and str(csv_data).strip()
+    }
+
+
+def _accounting_escalation_reason(metrics: dict[str, Any]) -> str:
+    difference = metrics.get("cash_reconciliation_difference", 0.0)
+    try:
+        if abs(float(difference)) > 0:
+            return "Cash reconciliation has an unexplained difference requiring controller review."
+    except (TypeError, ValueError):
+        pass
+    return "Finance close output requires controller review before posting entries or external reporting."
 
 
 async def _maybe_run_accounting_advisory(

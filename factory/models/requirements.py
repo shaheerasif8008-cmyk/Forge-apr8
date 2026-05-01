@@ -16,6 +16,7 @@ def utc_now() -> datetime:
 class EmployeeArchetype(str, Enum):
     LEGAL_INTAKE_ASSOCIATE = "legal_intake_associate"
     EXECUTIVE_ASSISTANT = "executive_assistant"
+    ACCOUNTANT = "accountant"
 
 
 class ComplianceFramework(str, Enum):

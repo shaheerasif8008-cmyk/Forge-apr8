@@ -23,8 +23,11 @@ async def run_behavioral_tests(base_url: str, *, auth_headers: dict[str, str] | 
         timeout=EVALUATOR_REQUEST_TIMEOUT_SECONDS,
         headers=auth_headers,
     ) as client:
-        meta = await client.get("/api/v1/meta")
-        workflow = meta.json().get("workflow", "") if meta.status_code == 200 else ""
+        try:
+            meta = await client.get("/api/v1/meta")
+            workflow = meta.json().get("workflow", "") if meta.status_code == 200 else ""
+        except Exception:  # noqa: BLE001
+            workflow = ""
         behavioral_input = (
             "We have a novel vendor notice with unclear accounting impact. Please propose options before taking action."
             if workflow == "executive_assistant"

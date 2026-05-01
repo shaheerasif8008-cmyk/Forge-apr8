@@ -60,25 +60,71 @@ BUILTIN_WORKFLOW_PACKS: tuple[WorkflowPack, ...] = (
     WorkflowPack(
         pack_id="accounting_ops_pack",
         display_name="Accounting Operations",
-        description="AP follow-up, close checklist support, variance explanation, and reconciliation triage.",
+        description=(
+            "Month-end close, reconciliation triage, AP/AR aging review, variance explanation, "
+            "statement draft preparation, and approval-boundary enforcement."
+        ),
         supported_lanes=["knowledge_work", "business_process", "hybrid"],
-        classification_hints=["invoice", "ap", "ar", "close", "variance", "reconcile", "accounting"],
-        required_tools=["email_tool", "calendar_tool"],
-        optional_tools=["file_storage_tool", "custom_api_tool"],
+        classification_hints=[
+            "invoice",
+            "ap",
+            "ar",
+            "aging",
+            "month-end",
+            "close",
+            "variance",
+            "reconcile",
+            "accounting",
+            "general ledger",
+            "bank feed",
+        ],
+        required_tools=["email_tool", "calendar_tool", "file_storage_tool"],
+        optional_tools=["custom_api_tool", "messaging_tool"],
         output_templates={
-            "knowledge_work": "Finance memo with assumptions, calculations, and review flags.",
-            "business_process": "Accounting action log with invoices, owners, amounts, and exceptions.",
-            "hybrid": "Finance memo plus action log.",
+            "knowledge_work": (
+                "Finance memo with assumptions, calculations, variance analysis, reconciliation status, "
+                "and review flags."
+            ),
+            "business_process": (
+                "Accounting action log with bank feed exceptions, GL tie-outs, AP/AR aging owners, "
+                "close checklist status, amounts, and approval requests."
+            ),
+            "hybrid": (
+                "Month-end close package with variance analysis, close checklist, statement draft, "
+                "reconciliation action log, and explicit approval boundaries."
+            ),
         },
-        autonomy_overrides={"post_journal_entry": "approval_required", "file_tax_return": "forbidden"},
-        domain_vocabulary=["invoice", "aging", "variance", "close checklist", "reconciliation"],
-        onboarding_questions=["What chart of accounts and close calendar should I use?", "Who approves finance actions?"],
+        autonomy_overrides={
+            "post_journal_entry": "approval_required",
+            "send_external_financial_statement": "approval_required",
+            "file_tax_return": "forbidden",
+        },
+        domain_vocabulary=[
+            "bank feed",
+            "GL",
+            "AP aging",
+            "AR aging",
+            "invoice",
+            "variance analysis",
+            "close checklist",
+            "statement draft",
+            "reconciliation",
+            "approval boundary",
+        ],
+        onboarding_questions=[
+            "Which bank feed, GL, AP aging, and AR aging sources should I reconcile?",
+            "What close checklist and statement draft format should I use?",
+            "Who approves journal entries, external statements, tax filings, and close exceptions?",
+        ],
         evaluation_cases=[
             WorkflowPackEvaluationCase(
-                case_id="accounting_ap_followup",
-                input="Review AP aging and draft follow-up actions for overdue invoices.",
+                case_id="accounting_month_end_close",
+                input=(
+                    "Use the bank feed, GL, AP aging, and AR aging to reconcile cash, explain variances, "
+                    "update the close checklist, draft statements, and flag approval boundaries."
+                ),
                 expected_lane="hybrid",
-                required_terms=["AP", "overdue", "follow-up"],
+                required_terms=["bank feed", "GL", "AP aging", "AR aging", "variance", "approval"],
             )
         ],
         roi_metrics={"default_minutes_saved": 45.0},

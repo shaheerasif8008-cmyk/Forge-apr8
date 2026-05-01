@@ -171,6 +171,7 @@ class ResearchReport(BaseModel):
 
 class DataAnalysisRequest(BaseModel):
     csv_data: str | None = None
+    source_csvs: dict[str, str] = Field(default_factory=dict)
     rows: list[dict[str, Any]] = Field(default_factory=list)
     sql_query: str | None = None
     question: str = ""

@@ -33,7 +33,22 @@ def test_select_pack_ids_uses_role_and_required_tools() -> None:
     )
 
     assert "accounting_ops_pack" in selected
-    assert "executive_assistant_pack" in selected
+    assert selected[0] == "accounting_ops_pack"
+    assert "executive_assistant_pack" not in selected
+
+
+def test_accounting_ops_pack_covers_month_end_close_inputs_and_boundaries() -> None:
+    pack = get_workflow_pack("accounting_ops_pack")
+
+    assert "month-end close" in pack.description.lower()
+    for source in ("bank feed", "GL", "AP aging", "AR aging"):
+        assert source in pack.domain_vocabulary
+    for output in ("variance analysis", "close checklist", "statement draft"):
+        assert output in pack.output_templates["hybrid"]
+    assert pack.autonomy_overrides["post_journal_entry"] == "approval_required"
+    assert pack.autonomy_overrides["send_external_financial_statement"] == "approval_required"
+    assert pack.autonomy_overrides["file_tax_return"] == "forbidden"
+    assert any(case.case_id == "accounting_month_end_close" for case in pack.evaluation_cases)
 
 
 def test_select_pack_ids_keeps_legal_and_operations_paths_available() -> None:

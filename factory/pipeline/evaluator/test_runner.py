@@ -27,12 +27,19 @@ logger = structlog.get_logger(__name__)
 def _suite_profile(build: Build) -> str:
     explicit_profile = str(build.metadata.get("evaluation_profile", "")).strip()
     if explicit_profile:
-        return explicit_profile
+        return _normalize_suite_profile(explicit_profile)
     employee_role = str(build.metadata.get("employee_role", "")).lower()
     employee_name = str(build.metadata.get("employee_name", "")).lower()
     if "accountant" in employee_role or "accountant" in employee_name:
         return "accountant"
-    return str(build.metadata.get("workflow_id", "legal_intake"))
+    return _normalize_suite_profile(str(build.metadata.get("workflow_id", "legal_intake")))
+
+
+def _normalize_suite_profile(profile: str) -> str:
+    normalized = profile.strip().lower()
+    if normalized in {"accountant", "accounting_ops"}:
+        return "accountant"
+    return normalized
 
 
 async def evaluate(build: Build) -> Build:

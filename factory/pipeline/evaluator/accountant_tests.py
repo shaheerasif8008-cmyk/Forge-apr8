@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -17,13 +18,38 @@ def load_accountant_cases(path: Path = DATASET_PATH) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def _normalize_text(value: str) -> str:
+    return " ".join(value.lower().replace(",", "").split())
+
+
+def _parse_number(value: Any) -> float:
+    if isinstance(value, int | float):
+        return float(value)
+    cleaned = str(value).strip().replace("$", "").replace(",", "").replace("%", "")
+    if cleaned.startswith("(") and cleaned.endswith(")"):
+        cleaned = f"-{cleaned[1:-1]}"
+    return float(cleaned)
+
+
+def _numbers_in_answer(answer: str) -> list[float]:
+    matches = re.findall(r"\(?-?\$?\d[\d,]*(?:\.\d+)?%?\)?", answer)
+    numbers: list[float] = []
+    for match in matches:
+        try:
+            numbers.append(_parse_number(match))
+        except ValueError:
+            continue
+    return numbers
+
+
 def score_accountant_answer(answer: str, case: dict[str, Any]) -> dict[str, Any]:
-    normalized = " ".join(answer.lower().replace(",", "").split())
+    normalized = _normalize_text(answer)
+    answer_numbers = _numbers_in_answer(answer)
     checks: list[dict[str, Any]] = []
     passed_count = 0
     for check in case.get("checks", []):
-        all_of = [str(term).lower().replace(",", "") for term in check.get("all_of", [])]
-        any_of = [str(term).lower().replace(",", "") for term in check.get("any_of", [])]
+        all_of = [_normalize_text(str(term)) for term in check.get("all_of", [])]
+        any_of = [_normalize_text(str(term)) for term in check.get("any_of", [])]
         missing_all = [term for term in all_of if term not in normalized]
         any_matched = True if not any_of else any(term in normalized for term in any_of)
         passed = not missing_all and any_matched
@@ -37,7 +63,41 @@ def score_accountant_answer(answer: str, case: dict[str, Any]) -> dict[str, Any]
                 "matched_any": any_matched,
             }
         )
-    total = len(checks)
+
+    evidence_results: list[dict[str, Any]] = []
+    required_evidence = [_normalize_text(str(term)) for term in case.get("required_evidence", [])]
+    if required_evidence:
+        missing_evidence = [term for term in required_evidence if term not in normalized]
+        evidence_passed = not missing_evidence
+        if evidence_passed:
+            passed_count += 1
+        evidence_results.append(
+            {
+                "id": "required_evidence",
+                "passed": evidence_passed,
+                "missing_all": missing_evidence,
+            }
+        )
+
+    numeric_results: list[dict[str, Any]] = []
+    for numeric_answer in case.get("numeric_answers", []):
+        expected = _parse_number(numeric_answer["value"])
+        tolerance = abs(_parse_number(numeric_answer.get("tolerance", 0.01)))
+        matched_value = next((value for value in answer_numbers if abs(value - expected) <= tolerance), None)
+        passed = matched_value is not None
+        if passed:
+            passed_count += 1
+        numeric_results.append(
+            {
+                "id": numeric_answer.get("id", ""),
+                "passed": passed,
+                "expected": expected,
+                "tolerance": tolerance,
+                "matched_value": matched_value,
+            }
+        )
+
+    total = len(checks) + len(evidence_results) + len(numeric_results)
     score = 1.0 if total == 0 else passed_count / total
     minimum_score = float(case.get("minimum_score", 0.8))
     return {
@@ -46,6 +106,8 @@ def score_accountant_answer(answer: str, case: dict[str, Any]) -> dict[str, Any]
         "score": round(score, 3),
         "minimum_score": minimum_score,
         "checks": checks,
+        "evidence": evidence_results,
+        "numeric_answers": numeric_results,
     }
 
 
